@@ -1,0 +1,75 @@
+#cloud-config
+hostname: ${name}
+%{ if domain != null ~}
+fqdn: ${name}.${domain}
+%{ endif ~}
+manage_etc_hosts: false
+timezone: ${timezone}
+users:
+  - default
+  - name: ${vm_user}
+    groups:
+      - sudo
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+    sudo: ALL=(ALL) NOPASSWD:ALL
+write_files:
+  - path: /etc/hosts
+    permissions: '0644'
+    content: |
+      127.0.0.1 localhost
+      127.0.1.1 ${name}
+%{ for vm in all_vms ~}
+      ${vm.ip} ${vm.name}%{ if domain != null } ${vm.name}.${domain}%{ endif }
+%{ endfor ~}
+runcmd:
+%{ if !is_clone ~}
+  - |
+    # Plain cloud image only: golden images bake these in.
+    echo "base setup" > /var/log/provision.log
+    apt-get update >> /var/log/provision.log 2>&1 || echo "apt update failed" >> /var/log/provision.log
+    DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent curl >> /var/log/provision.log 2>&1 || echo "base install failed" >> /var/log/provision.log
+    systemctl enable --now qemu-guest-agent >> /var/log/provision.log 2>&1
+%{ endif ~}
+  - |
+    echo "installing netbird" >> /var/log/provision.log
+    curl -fsSL https://pkgs.netbird.io/install.sh | sh >> /var/log/provision.log 2>&1 || echo "netbird install failed" >> /var/log/provision.log
+    netbird up --setup-key '${netbird_setup_key}' --hostname ${name} --allow-server-ssh --enable-ssh-root%{ if netbird_management_url != "" } --management-url '${netbird_management_url}'%{ endif } >> /var/log/provision.log 2>&1 || echo "netbird up failed" >> /var/log/provision.log
+%{ if is_clone ~}
+  - |
+    # Golden-image clone: Sunshine (deb) is baked in, running as the image
+    # user (${template_user}) via session autostart. Per-VM web UI config
+    # happens here.
+    echo "configuring sunshine (golden image)" >> /var/log/provision.log
+    conf=/home/${template_user}/.config/sunshine/sunshine.conf
+    mkdir -p /home/${template_user}/.config/sunshine
+    # Allow the web UI from this VM's netbird name and LAN IP (Sunshine's
+    # CSRF protection only trusts localhost by default). Read the REAL
+    # netbird FQDN from the client: netbird suffixes the hostname (e.g.
+    # name-100-121) when a stale peer already holds the plain name, so the
+    # guessed "${name}.netbird.selfhosted" would be wrong. Retry while
+    # netbird finishes registering, then fall back to the plain name.
+    nb_fqdn=""
+    for _ in $(seq 1 20); do
+      nb_fqdn=$(netbird status 2>/dev/null | awk '/FQDN/{print $2; exit}')
+      [ -n "$nb_fqdn" ] && break
+      sleep 3
+    done
+    [ -n "$nb_fqdn" ] || nb_fqdn="${name}.netbird.selfhosted"
+    echo "csrf_allowed_origins = https://$nb_fqdn:47990,https://${ip}:47990" >> "$conf"
+    chown -R ${template_user}:${template_user} /home/${template_user}/.config/sunshine
+%{ if sunshine_admin_password != "" ~}
+    echo "setting sunshine creds (golden image)" >> /var/log/provision.log
+    sudo -u ${template_user} sunshine --creds '${vm_user}' '${sunshine_admin_password}' >> /var/log/provision.log 2>&1 || echo "sunshine creds failed" >> /var/log/provision.log
+%{ endif ~}
+    # Sunshine runs via session autostart (baked in by the image build's
+    # 13-cloud-init-customizations.sh). The instance that came up with the
+    # session predates this config, so kill it and restart the display
+    # manager: autologin brings the session back and autostart relaunches
+    # Sunshine with fresh state.
+    pkill -u ${template_user} -f sunshine || true
+    sleep 2
+    systemctl restart display-manager >> /var/log/provision.log 2>&1 || true
+%{ endif ~}
+  - echo "provision complete" >> /var/log/provision.log

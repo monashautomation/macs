@@ -1,0 +1,27 @@
+# Provider/module cache
+**/.terraform/*
+
+# State files — contain rendered cloud-init user-data (NetBird key, Sunshine
+# password, etc.). Never commit these.
+*.tfstate
+*.tfstate.*
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Secret and local-override variable files (vms.auto.tfvars.json IS tracked as
+# the active config; it holds no secrets — those arrive via TF_VAR_* env)
+secret*.tfvars
+secret*.tfvars.json
+*.auto.tfvars.bak
+*_override.tf
+*_override.tf.json
+override.tf
+override.tf.json
+
+# Terraform CLI config that may hold credentials
+.terraformrc
+terraform.rc
+
+# Note: .terraform.lock.hcl is intentionally committed (provider pinning).

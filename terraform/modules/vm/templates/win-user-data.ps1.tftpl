@@ -1,0 +1,34 @@
+#ps1_sysnative
+# First-boot user-data for win11-tiny golden-image clones, run once by
+# Cloudbase-Init's UserDataPlugin (elevated). The helper scripts were staged
+# under C:\ProgramData\golden by the image build (08-first-boot-tasks.ps1).
+$ErrorActionPreference = "Continue"
+$golden = "C:\ProgramData\golden"
+Start-Transcript -Path "$golden\first-boot-userdata.log" -Append
+
+# RDP(3389) + ICMP echo allowed from the NetBird overlay only, never the LAN.
+# The template ships with RDP closed; this rule is the only inbound path.
+& "$golden\remote-allow.ps1"
+
+# Join NetBird under this VM's name.
+& "$golden\netbird-join.ps1" -SetupKey '${netbird_setup_key}' -Hostname '${name}'%{ if netbird_management_url != "" } -ManagementUrl '${netbird_management_url}'%{ endif }
+
+# Per-VM Sunshine config: CSRF origins from the live NetBird FQDN (so this must
+# run after the join), plus the shared Web UI credential when one is provisioned.
+& "$golden\sunshine-config.ps1"%{ if sunshine_admin_password != "" } -Password '${replace(sunshine_admin_password, "'", "''")}' -User '${vm_user}'%{ endif }
+
+# MAS HWID activation: hardware-bound digital license, so it must run per-clone
+# (activating the template would not carry over). Needs outbound internet.
+& "$golden\activate-hwid.ps1"
+
+# Enforce the Terraform name as the Windows hostname (NetBIOS limit: 15 chars).
+# Proxmox's configdrive2 metadata carries no hostname, so Cloudbase-Init's
+# SetHostNamePlugin is a no-op and this is the only rename. The NetBird peer
+# name above is already correct regardless. The rename only takes effect on
+# reboot — schedule a delayed one so Cloudbase-Init finishes this run first.
+if ($env:COMPUTERNAME -ne '${name}') {
+  Rename-Computer -NewName '${name}' -Force
+  shutdown.exe /r /t 30 /c "Applying hostname ${name}"
+}
+
+Stop-Transcript

@@ -1,5 +1,19 @@
+# Resolved secrets (see secrets.conf.example)
 secrets.conf
 
 # Per-builder Packer SSH keypair (generated on demand by img-builds/*/build.sh)
 *.pem
 *.pem.pub
+
+# Packer
+packer_cache/
+*.pkr.local.hcl
+crash.log
+crash.*.log
+
+# Large local build inputs that must not be committed (drivers, ISOs)
+*.iso
+nvidia*.exe
+
+# macOS
+.DS_Store
