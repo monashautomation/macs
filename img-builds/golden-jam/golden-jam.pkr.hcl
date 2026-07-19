@@ -183,14 +183,8 @@ build {
     ]
   }
 
-  # provisioner "shell" {
-  #   inline = [
-  #     # Don't bake the build-time apt proxy or the cacher CA into the template.
-  #     "sudo rm -f /etc/apt/apt.conf.d/99-packer-proxy /etc/apt/apt.conf.d/90curtin-aptproxy",
-  #     "sudo rm -f /usr/local/share/ca-certificates/apt-cacher-ng.crt && sudo update-ca-certificates --fresh >/dev/null 2>&1 || true",
-  #     "sudo chown --recursive root /usr/local/packer",
-  #     "sudo cloud-init clean",
-  #   ]
-  # }
+  # Finalize: fix the cloud-init datasource pin + strip build artifacts +
+  # cloud-init clean. MUST be the last provisioner (it wipes cloud-init state).
+  provisioner "shell" { scripts = ["scripts/14-finalize-template.sh"] }
 }
 

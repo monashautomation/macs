@@ -17,7 +17,7 @@ variable "proxmox_user_password" {
 variable "vm_user" {
   description = "Linux username created on every VM"
   type        = string
-  default     = "ubuntu"
+  default     = "baker"
 }
 
 variable "ssh_public_key_path" {
@@ -79,7 +79,7 @@ variable "network" {
   description = "Shared network settings for all VMs"
   type = object({
     bridge       = optional(string, "vmbr1")
-    vlan_id      = optional(number, null)
+    vlan_id      = optional(number, "60")
     subnet_cidr  = string
     gateway      = string
     upstream_dns = list(string)
