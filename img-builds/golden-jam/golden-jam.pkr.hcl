@@ -87,7 +87,7 @@ source "proxmox-iso" "ubuntu-golden-jam-cloudimg" {
   }
 
   network_adapters {
-    bridge = "vmbr0"
+    bridge = var.network_bridge
     model  = "virtio"
   }
 

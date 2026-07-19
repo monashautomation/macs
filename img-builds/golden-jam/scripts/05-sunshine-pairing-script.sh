@@ -5,10 +5,10 @@ set -euo pipefail
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y jq
 
 echo "Creating Sunshine pairing script..."
-sudo tee /usr/local/bin/sunshine-pair.sh > /dev/null <<'EOF'
+sudo tee /usr/local/bin/sunshine-pair > /dev/null <<'EOF'
 #!/bin/bash
 # Pair a Moonlight client with this VM's Sunshine instance.
-# Usage: sunshine-pair.sh [client-name]
+# Usage: sunshine-pair [client-name]
 # Web UI credentials: SUNSHINE_USER (default: current user) and
 # SUNSHINE_PASS (prompted when unset).
 set -euo pipefail
@@ -45,4 +45,4 @@ curl -fsk -u "$user:$pass" -X POST https://localhost:47990/api/pin \
   -d "$(jq -n --arg pin "$pin" --arg name "$name" '{pin: $pin, name: $name}')"
 echo
 EOF
-sudo chmod +x /usr/local/bin/sunshine-pair.sh
+sudo chmod +x /usr/local/bin/sunshine-pair

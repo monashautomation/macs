@@ -62,6 +62,12 @@ variable "pool" {
   description = "Proxmox resource pool the build VM is created in (must exist)"
 }
 
+variable "network_bridge" {
+  type        = string
+  default     = "vmbr1"
+  description = "Proxmox bridge the build VM's NIC attaches to"
+}
+
 # ──────────────────────────────────────────────────────────────────────────────
 # VM / Template identification
 # ──────────────────────────────────────────────────────────────────────────────
