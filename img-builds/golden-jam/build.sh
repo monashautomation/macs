@@ -4,6 +4,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Per-builder SSH keypair for the Packer communicator (gitignored, generated
+# on demand). The public half is baked as baker's authorized key during
+# autoinstall; rebuilding with a fresh key rotates it.
+[ -f pkey.pem ] || ssh-keygen -t ed25519 -f pkey.pem -N '' -C packer-build
+
 packer init .
 packer build \
   -var "proxmox_username=$(secrets proxmox_packer_username)" \

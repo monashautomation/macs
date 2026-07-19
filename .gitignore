@@ -1,1 +1,5 @@
 secrets.conf
+
+# Per-builder Packer SSH keypair (generated on demand by img-builds/*/build.sh)
+*.pem
+*.pem.pub
