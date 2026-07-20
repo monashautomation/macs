@@ -17,6 +17,8 @@
             pkgs.bashInteractive
             pkgs.terraform
             pkgs.packer
+            pkgs.jq
+            pkgs.curl
           ];
         shellHook = ''
           export PATH="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/scripts:$PATH"

@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+# Move a PCI(e) passthrough device (GPU) from one VM to another on Proxmox.
+# Shuts down the source VM, strips the hostpci entry, shuts down the target
+# VM if it's up, adds the hostpci entry, boots the target.
+#
+# Auth/config: resolves proxmox_endpoint / proxmox_user_name /
+# proxmox_user_password via `secrets` (see secrets.conf.example), same as
+# terraform/run_terraform.sh.
+#
+# Usage:
+#   gpu-swap --node NODE --from VMID --to VMID --pci PCI_ID
+#             [--opts "pcie=1,x-vga=1"] [--timeout SEC] [--dry-run]
+#
+# Example:
+#   gpu-swap --node pve1 --from 101 --to 102 --pci 0000:01:00.0 --opts pcie=1
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+
+node=""
+from_vmid=""
+to_vmid=""
+pci_id=""
+hostpci_opts="pcie=1"
+timeout="${TIMEOUT:-60}"
+dry_run=0
+
+usage() {
+  echo "usage: $(basename "$0") --node NODE --from VMID --to VMID --pci PCI_ID [--opts OPTS] [--timeout SEC] [--dry-run]" >&2
+  exit 2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --node) node="$2"; shift 2 ;;
+    --from) from_vmid="$2"; shift 2 ;;
+    --to) to_vmid="$2"; shift 2 ;;
+    --pci) pci_id="$2"; shift 2 ;;
+    --opts) hostpci_opts="$2"; shift 2 ;;
+    --timeout) timeout="$2"; shift 2 ;;
+    --dry-run) dry_run=1; shift ;;
+    -h|--help) usage ;;
+    *) echo "unknown arg: $1" >&2; usage ;;
+  esac
+done
+
+[ -n "$node" ] && [ -n "$from_vmid" ] && [ -n "$to_vmid" ] && [ -n "$pci_id" ] || usage
+command -v jq >/dev/null || { echo "gpu-swap: jq required" >&2; exit 1; }
+[ "$from_vmid" != "$to_vmid" ] || { echo "gpu-swap: --from and --to must differ" >&2; exit 1; }
+
+endpoint="$("$script_dir/secrets" proxmox_endpoint)"
+user="$("$script_dir/secrets" proxmox_user_name)"
+password="$("$script_dir/secrets" proxmox_user_password)"
+api="${endpoint%/}/api2/json"
+
+log() { echo "[gpu-swap] $*" >&2; }
+
+if [ "$dry_run" -eq 1 ]; then
+  log "DRY RUN: would authenticate to $endpoint as $user"
+fi
+
+# --- auth ---------------------------------------------------------------
+
+ticket=""
+csrf=""
+
+authenticate() {
+  local resp
+  resp="$(curl -sk -f -d "username=${user}" --data-urlencode "password=${password}" "$api/access/ticket")"
+  ticket="$(jq -r '.data.ticket' <<<"$resp")"
+  csrf="$(jq -r '.data.CSRFPreventionToken' <<<"$resp")"
+  [ -n "$ticket" ] && [ "$ticket" != "null" ] || { echo "gpu-swap: auth failed" >&2; exit 1; }
+}
+
+# pve_api METHOD PATH [form-field=value ...]
+pve_api() {
+  local method="$1" path="$2"; shift 2
+  local -a data_args=()
+  for kv in "$@"; do data_args+=(--data-urlencode "$kv"); done
+  curl -sk -f -X "$method" \
+    -b "PVEAuthCookie=${ticket}" \
+    -H "CSRFPreventionToken: ${csrf}" \
+    "${data_args[@]}" \
+    "$api$path"
+}
+
+# --- task/status polling -------------------------------------------------
+
+wait_task() {
+  local upid="$1" elapsed=0
+  while true; do
+    local resp status exitstatus
+    resp="$(pve_api GET "/nodes/$node/tasks/$upid/status")"
+    status="$(jq -r '.data.status' <<<"$resp")"
+    if [ "$status" = "stopped" ]; then
+      exitstatus="$(jq -r '.data.exitstatus' <<<"$resp")"
+      [ "$exitstatus" = "OK" ] || { echo "gpu-swap: task $upid failed: $exitstatus" >&2; exit 1; }
+      return 0
+    fi
+    sleep 2; elapsed=$((elapsed + 2))
+    [ "$elapsed" -lt "$timeout" ] || { echo "gpu-swap: task $upid timed out after ${timeout}s" >&2; exit 1; }
+  done
+}
+
+vm_status() {
+  local vmid="$1"
+  pve_api GET "/nodes/$node/qemu/$vmid/status/current" | jq -r '.data.status'
+}
+
+wait_vm_status() {
+  local vmid="$1" want="$2" elapsed=0
+  while [ "$(vm_status "$vmid")" != "$want" ]; do
+    sleep 2; elapsed=$((elapsed + 2))
+    [ "$elapsed" -lt "$timeout" ] || return 1
+  done
+  return 0
+}
+
+# shutdown_vm VMID: graceful ACPI shutdown, force stop on timeout. No-op if already stopped.
+shutdown_vm() {
+  local vmid="$1"
+  if [ "$(vm_status "$vmid")" = "stopped" ]; then
+    log "VM $vmid already stopped"
+    return 0
+  fi
+  log "shutting down VM $vmid"
+  local upid
+  upid="$(pve_api POST "/nodes/$node/qemu/$vmid/status/shutdown" | jq -r '.data')"
+  wait_task "$upid"
+  if ! wait_vm_status "$vmid" "stopped"; then
+    log "VM $vmid did not shut down gracefully in ${timeout}s, forcing stop"
+    upid="$(pve_api POST "/nodes/$node/qemu/$vmid/status/stop" | jq -r '.data')"
+    wait_task "$upid"
+    wait_vm_status "$vmid" "stopped" || { echo "gpu-swap: VM $vmid still not stopped" >&2; exit 1; }
+  fi
+}
+
+# --- config helpers -------------------------------------------------------
+
+# find_hostpci_slot VMID PCI_ID: prints hostpciN key holding PCI_ID, empty if none.
+find_hostpci_slot() {
+  local vmid="$1" needle="$2" cfg
+  cfg="$(pve_api GET "/nodes/$node/qemu/$vmid/config")"
+  jq -r --arg pci "$needle" '
+    .data | to_entries[]
+    | select(.key | test("^hostpci[0-9]+$"))
+    | select(.value | startswith($pci))
+    | .key' <<<"$cfg" | head -1
+}
+
+# find_free_hostpci_slot VMID: prints first unused hostpciN key (0..15).
+find_free_hostpci_slot() {
+  local vmid="$1" cfg
+  cfg="$(pve_api GET "/nodes/$node/qemu/$vmid/config")"
+  for i in $(seq 0 15); do
+    if ! jq -e --arg k "hostpci$i" '.data | has($k)' <<<"$cfg" >/dev/null; then
+      echo "hostpci$i"
+      return 0
+    fi
+  done
+  echo "gpu-swap: no free hostpci slot on VM $vmid" >&2
+  exit 1
+}
+
+# --- main ------------------------------------------------------------------
+
+if [ "$dry_run" -eq 1 ]; then
+  cat >&2 <<EOF
+DRY RUN plan:
+  1. shutdown VM $from_vmid (node $node) if running
+  2. remove PCI $pci_id from VM $from_vmid config
+  3. shutdown VM $to_vmid if running
+  4. add PCI $pci_id (opts: $hostpci_opts) to VM $to_vmid config
+  5. start VM $to_vmid
+EOF
+  exit 0
+fi
+
+authenticate
+
+log "checking VM $to_vmid doesn't already have $pci_id"
+existing_slot="$(find_hostpci_slot "$to_vmid" "$pci_id")"
+[ -z "$existing_slot" ] || { echo "gpu-swap: VM $to_vmid already has $pci_id on $existing_slot" >&2; exit 1; }
+
+from_slot="$(find_hostpci_slot "$from_vmid" "$pci_id")"
+[ -n "$from_slot" ] || { echo "gpu-swap: VM $from_vmid has no hostpci entry for $pci_id" >&2; exit 1; }
+
+shutdown_vm "$from_vmid"
+
+log "removing $pci_id ($from_slot) from VM $from_vmid"
+upid="$(pve_api PUT "/nodes/$node/qemu/$from_vmid/config" "delete=$from_slot" | jq -r '.data // empty')"
+[ -z "$upid" ] || wait_task "$upid"
+
+shutdown_vm "$to_vmid"
+
+to_slot="$(find_free_hostpci_slot "$to_vmid")"
+log "adding $pci_id to VM $to_vmid ($to_slot, opts: $hostpci_opts)"
+upid="$(pve_api PUT "/nodes/$node/qemu/$to_vmid/config" "${to_slot}=${pci_id},${hostpci_opts}" | jq -r '.data // empty')"
+[ -z "$upid" ] || wait_task "$upid"
+
+log "starting VM $to_vmid"
+upid="$(pve_api POST "/nodes/$node/qemu/$to_vmid/status/start" | jq -r '.data')"
+wait_task "$upid"
+wait_vm_status "$to_vmid" "running" || { echo "gpu-swap: VM $to_vmid did not reach running state" >&2; exit 1; }
+
+log "done: $pci_id moved from VM $from_vmid to VM $to_vmid"
