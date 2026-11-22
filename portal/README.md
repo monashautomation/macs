@@ -14,6 +14,9 @@ GPU tracking, swapping and time-booking on the research cluster.
   and detaches the card on time, migrating the VM to a node with a free GPU.
 - **Backups** — back up to Proxmox Backup Server, roll back, or *archive* a VM
   (backup, then destroy) and restore it later.
+- **Console and connection details** — each VM page opens the VM's screen in
+  the browser (noVNC, proxied through the portal) and lists how to reach it:
+  SSH command, RDP (with a downloadable `.rdp` file), Moonlight/Sunshine.
 - **Authentik** sign-in (OIDC); roles come from Authentik groups.
 
 ```
@@ -94,6 +97,28 @@ vendor-data snippet referenced by the template's `cicustom`.
 **Backups** — add the PBS datastore as a storage on the cluster and put its
 storage id in `backup_storage`. Pruning/retention stays in PBS.
 
+## Console and connecting
+
+**Open console** shows the VM's display and keyboard in a browser tab. The
+portal asks Proxmox for a one-time VNC ticket (`vncproxy`) and relays the
+stream over its own websocket, so users never need a Proxmox login or a network
+route to the nodes, and it works before the guest has networking. Each console
+is single-use, tied to the signed-in owner (or an admin) and audit-logged.
+
+- The reverse proxy in front of the portal must pass websocket upgrades for
+  `/api/console/`.
+- The API token needs `VM.Console` (included in `PVEAdmin` / `PVEVMUser`).
+- While a GPU is passed through with `x-vga=1`, or the guest only draws to the
+  GPU, the Proxmox display is blank — that is what Sunshine/Moonlight is for.
+- VNC has no clipboard into the guest; **Paste as keystrokes** types the
+  clipboard instead (US layout).
+
+Network connection details come from each template's `connect` list (`ssh`,
+`rdp`, `sunshine`; default `ssh` for Linux, `rdp` for Windows). The address is
+`<vm-name>.<connect_domain>` if the cluster sets `connect_domain` (e.g. the
+NetBird domain), otherwise the IPs reported by the guest agent. These are
+details for the user's own client; the portal does not proxy SSH or RDP.
+
 ## How GPU booking behaves
 
 - A booking reserves *one GPU from the pool*, not a specific card. The portal
@@ -110,7 +135,8 @@ storage id in `backup_storage`. Pruning/retention stays in PBS.
 
 ## Not done yet
 
-- No in-browser console (noVNC); the VM page shows the IP and SSH command.
+- No in-browser SSH terminal or RDP session (console only); users connect
+  with their own client using the details shown.
 - No email/chat notifications for approvals or upcoming bookings.
 - No expiry or idle reclamation of VMs.
 - Database schema is created on start; there are no migrations yet.

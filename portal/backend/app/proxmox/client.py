@@ -2,14 +2,38 @@
 from __future__ import annotations
 
 import asyncio
+import ssl
 import time
 from typing import Any
 from urllib.parse import quote
 
 import httpx
+import websockets
 
 from ..config import ClusterConfig
-from .base import ProxmoxDriver, ProxmoxError
+from .base import ConsoleStream, ProxmoxDriver, ProxmoxError
+
+
+class _WebSocketConsole(ConsoleStream):
+    def __init__(self, ws, password: str):
+        self._ws = ws
+        self.password = password
+
+    async def recv(self) -> bytes | None:
+        try:
+            data = await self._ws.recv()
+        except websockets.ConnectionClosed:
+            return None
+        return data.encode() if isinstance(data, str) else data
+
+    async def send(self, data: bytes) -> None:
+        try:
+            await self._ws.send(data)
+        except websockets.ConnectionClosed:
+            pass
+
+    async def close(self) -> None:
+        await self._ws.close()
 
 
 class ProxmoxClient(ProxmoxDriver):
@@ -171,3 +195,25 @@ class ProxmoxClient(ProxmoxDriver):
     async def restore(self, node, vmid, volid, storage, force=False) -> None:
         await self._task("POST", f"/nodes/{node}/qemu", vmid=vmid, archive=volid, storage=storage,
                          force=1 if force else None)
+
+    # -- console ---------------------------------------------------------
+
+    async def open_console(self, node, vmid) -> ConsoleStream:
+        # vncproxy starts a short-lived VNC listener on the node; the websocket
+        # must attach within a few seconds, using the same credentials.
+        data = await self._call("POST", f"/nodes/{node}/qemu/{vmid}/vncproxy", websocket=1)
+        base = self.cfg.endpoint.rstrip("/").replace("https://", "wss://", 1).replace("http://", "ws://", 1)
+        url = (f"{base}/api2/json/nodes/{node}/qemu/{vmid}/vncwebsocket"
+               f"?port={data['port']}&vncticket={quote(data['ticket'], safe='')}")
+        ctx = None
+        if url.startswith("wss://"):
+            ctx = ssl.create_default_context()
+            if not self.cfg.verify_tls:
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+        try:
+            ws = await websockets.connect(url, additional_headers=await self._auth(), ssl=ctx,
+                                          subprotocols=["binary"], max_size=None, open_timeout=10)
+        except (OSError, websockets.WebSocketException, asyncio.TimeoutError) as e:
+            raise ProxmoxError(f"{self.cfg.id}: could not open the console: {e or type(e).__name__}") from e
+        return _WebSocketConsole(ws, data["ticket"])

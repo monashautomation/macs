@@ -76,6 +76,13 @@ class Template(BaseModel):
     # (vendor-data merges with the generated user/ssh-key config).
     cicustom: str = ""
     gpu_capable: bool = True
+    # Ways to reach the VM that the portal advertises on its page. Default:
+    # [ssh] for linux, [rdp] for windows. "sunshine" = Moonlight game streaming.
+    connect: list[Literal["ssh", "rdp", "sunshine"]] | None = None
+
+    @property
+    def connections(self) -> list[str]:
+        return self.connect if self.connect is not None else (["rdp"] if self.os == "windows" else ["ssh"])
 
 
 class Limits(BaseModel):
@@ -149,6 +156,9 @@ class ClusterConfig(BaseModel):
     bridge: str = ""
     vlan: int | None = None
     vmid_range: tuple[int, int] = (1000, 1999)
+    # If VMs are reachable by name (e.g. over NetBird: "netbird.selfhosted"),
+    # connection details show <vm-name>.<connect_domain> ahead of raw IPs.
+    connect_domain: str = ""
     # Proxmox storage id of the Proxmox Backup Server datastore. Empty = no backups.
     backup_storage: str = ""
 

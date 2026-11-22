@@ -1,11 +1,13 @@
 """JSON API consumed by the web UI."""
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -234,7 +236,6 @@ async def vm_detail(vm_id: int, user: User = Depends(current_user), core: Core =
         out = vm_out(db, core, vm, await live_view(core, vm.cluster_id))
         cluster = core.cfg.cluster(vm.cluster_id)
         tpl = cluster.template(vm.template_id) if cluster else None
-        out["login_user"] = tpl.default_user if tpl and tpl.os == "linux" else None
         out["os"] = tpl.os if tpl else None
         out["ips"] = []
         if out["power"] == "running":
@@ -244,6 +245,7 @@ async def vm_detail(vm_id: int, user: User = Depends(current_user), core: Core =
                     lambda: core.driver(vm.cluster_id).vm_ips(out["node"], vm.vmid), max_age=20)
             except ProxmoxError:
                 pass
+        out["connections"] = connections(cluster, tpl, vm.name, out["ips"]) if out["power"] == "running" else []
         out["jobs"] = [job_out(j) for j in db.scalars(
             select(Job).where(Job.vm_id == vm.id).order_by(Job.id.desc()).limit(10))]
         out["reservations"] = [res_out(r) for r in db.scalars(
@@ -253,6 +255,33 @@ async def vm_detail(vm_id: int, user: User = Depends(current_user), core: Core =
                            "created_at": iso(b.created_at)}
                           for b in db.scalars(select(Backup).where(Backup.vm_id == vm.id).order_by(Backup.id.desc()))]
         return out
+
+
+def connections(cluster, tpl, name: str, ips: list[str]) -> list[dict]:
+    """How to reach a running VM over the network, per its template's `connect` list."""
+    if not cluster:
+        return []
+    hosts = ([f"{name}.{cluster.connect_domain}"] if cluster.connect_domain else []) + ips
+    if not hosts:
+        return []
+    host = hosts[0]
+    user = tpl.default_user if tpl else ""
+    out = []
+    for kind in (tpl.connections if tpl else ["ssh"]):
+        if kind == "ssh":
+            out.append({"kind": "ssh", "label": "SSH", "host": host, "port": 22, "user": user,
+                        "command": f"ssh {user}@{host}" if user else f"ssh {host}"})
+        elif kind == "rdp":
+            out.append({"kind": "rdp", "label": "Remote Desktop (RDP)", "host": host, "port": 3389,
+                        # default_user's default is a Linux name; only show one set on purpose
+                        "user": user if tpl and "default_user" in tpl.model_fields_set else "",
+                        "command": f"{host}:3389"})
+        elif kind == "sunshine":
+            out.append({"kind": "sunshine", "label": "Moonlight (Sunshine)", "host": host, "port": 47989,
+                        "user": "", "command": host, "url": f"https://{host}:47990"})
+    for o in out:
+        o["hosts"] = hosts
+    return out
 
 
 class PowerAction(BaseModel):
@@ -268,6 +297,63 @@ async def vm_power(vm_id: int, body: PowerAction, user: User = Depends(current_u
             raise HTTPException(409, "the VM is not active")
         return {"job_id": start_job(core, db, body.action, vm, user,
                                     lambda log: vm_svc.power(core, vm_id, body.action, log))}
+
+
+@router.post("/vms/{vm_id}/console")
+async def vm_console(vm_id: int, user: User = Depends(current_user), core: Core = Depends(get_core)):
+    """Open the VM's screen. Returns a one-time token for the console websocket."""
+    with core.Session() as db:
+        vm = get_vm(db, core, user, vm_id)
+        if vm.status != "active":
+            raise HTTPException(409, "the VM is not active")
+        live = await vm_svc.locate(core, vm)
+        if not live or live["status"] != "running":
+            raise HTTPException(409, "start the VM to open its console")
+        stream = await core.driver(vm.cluster_id).open_console(live["node"], vm.vmid)
+        core.audit(db, user, "console", f"{vm.cluster_id}/{vm.name}")
+        db.commit()
+        return {"token": core.hold_console(user.id, stream), "password": stream.password, "name": vm.name}
+
+
+@router.websocket("/console/{token}")
+async def console_ws(ws: WebSocket, token: str):
+    core: Core = ws.app.state.core
+    # Browsers send cookies on cross-site websockets, so pin the origin too.
+    origin = ws.headers.get("origin")
+    allowed = {urlsplit(core.cfg.app.base_url).netloc, ws.headers.get("host")}
+    stream = None
+    if not origin or urlsplit(origin).netloc in allowed:
+        stream = core.claim_console(token, ws.session.get("uid"))
+    if not stream:
+        await ws.close(code=4403)
+        return
+    await ws.accept(subprotocol="binary" if "binary" in ws.scope.get("subprotocols", []) else None)
+
+    async def downstream():
+        while (data := await stream.recv()) is not None:
+            await ws.send_bytes(data)
+
+    async def upstream():
+        while True:
+            msg = await ws.receive()
+            if msg["type"] == "websocket.disconnect":
+                return
+            data = msg.get("bytes") or (msg.get("text") or "").encode()
+            if data:
+                await stream.send(data)
+
+    tasks = [asyncio.ensure_future(downstream()), asyncio.ensure_future(upstream())]
+    try:
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await stream.close()
+        try:
+            await ws.close()
+        except (RuntimeError, WebSocketDisconnect):
+            pass  # already closed by the browser
 
 
 @router.delete("/vms/{vm_id}")

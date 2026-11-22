@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { type Job, api, useAct, useClusters, useMe, useVM } from "../api";
+import { type Connection, type Job, api, useAct, useClusters, useMe, useVM } from "../api";
 import { Badge, Button, Card, Empty, ErrorNote, Field, Modal, VMStatus, fmtDateTime, fmtGB, fmtSize, fmtUptime, inputCls } from "../ui";
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
@@ -8,6 +8,43 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
     <div>
       <dt className="text-xs text-mute">{label}</dt>
       <dd className="mt-0.5 text-sm">{children}</dd>
+    </div>
+  );
+}
+
+function CopyBox({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="flex items-stretch overflow-hidden rounded-md border border-line bg-sunken">
+      <code className="min-w-0 flex-1 overflow-x-auto px-3 py-2 text-xs whitespace-nowrap">{text}</code>
+      <button className="border-l border-line px-3 text-xs font-medium text-mute hover:text-ink"
+        onClick={() => navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })}>
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </div>
+  );
+}
+
+function ConnectionRow({ c, name }: { c: Connection; name: string }) {
+  const rdpFile = `full address:s:${c.host}:${c.port}\r\n${c.user ? `username:s:${c.user}\r\n` : ""}prompt for credentials:i:1\r\n`;
+  return (
+    <div>
+      <div className="mb-1 flex flex-wrap items-baseline gap-x-3 text-sm">
+        <span className="font-medium">{c.label}</span>
+        <span className="text-xs text-mute">
+          port {c.port}{c.user && ` · user ${c.user}`}
+          {c.kind === "ssh" && " · with the SSH key you provided"}
+        </span>
+        {c.kind === "rdp" && (
+          <a className="ml-auto text-xs text-brand hover:underline" download={`${name}.rdp`} href={`data:application/x-rdp;charset=utf-8,${encodeURIComponent(rdpFile)}`}>Download .rdp file</a>
+        )}
+        {c.kind === "sunshine" && c.url && (
+          <a className="ml-auto text-xs text-brand hover:underline" href={c.url} target="_blank" rel="noopener noreferrer">Sunshine web UI (pairing) ↗</a>
+        )}
+      </div>
+      <CopyBox text={c.command} />
+      {c.kind === "sunshine" && <p className="mt-1 text-xs text-mute">In Moonlight choose “Add host” and enter this address.</p>}
+      {c.hosts.length > 1 && <p className="mt-1 text-xs text-mute">Also reachable at {c.hosts.slice(1).join(", ")}</p>}
     </div>
   );
 }
@@ -82,10 +119,23 @@ export default function VMDetail() {
           <Fact label="Uptime">{fmtUptime(vm.uptime)}</Fact>
           <Fact label="IP address">{vm.ips.length ? vm.ips.join(", ") : running ? "waiting for guest agent…" : "—"}</Fact>
         </dl>
-        {vm.login_user && vm.ips[0] && (
-          <pre className="mt-4 overflow-x-auto rounded-md bg-sunken px-3 py-2 text-xs">ssh {vm.login_user}@{vm.ips[0]}</pre>
-        )}
       </Card>
+
+      {active && (
+        <Card title="Connect" actions={running && (
+          <Link to={`/vms/${vm.id}/console`} target="_blank" rel="noopener" className="rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-brand-ink hover:opacity-90">Open console ↗</Link>
+        )}>
+          {!running ? (
+            <p className="text-sm text-mute">Start the VM to open its console or connect over the network.</p>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-mute">The console is the VM's own screen and keyboard in your browser. It works even before the network is up, so use it to fix a broken SSH or network setup.</p>
+              {vm.connections.map((c) => <ConnectionRow key={c.kind} c={c} name={vm.name} />)}
+              {!vm.connections.length && <p className="text-sm text-mute">Waiting for the guest agent to report an address for SSH / remote desktop…</p>}
+            </div>
+          )}
+        </Card>
+      )}
 
       {cluster?.has_gpus && vm.status !== "archived" && (
         <Card title="GPU" actions={vm.gpu_access === "approved" && active && <Link to={`/gpus?vm=${vm.id}`} className="rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-brand-ink">Book GPU time</Link>}>

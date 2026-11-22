@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 import time
 from collections import defaultdict
 from typing import Any, Awaitable, Callable
@@ -12,7 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from .config import ClusterConfig, Config
 from .db import VM, Audit, Job, User, make_session_factory, utcnow
-from .proxmox.base import ProxmoxDriver
+from .proxmox.base import ConsoleStream, ProxmoxDriver
 from .proxmox.client import ProxmoxClient
 from .proxmox.mock import MockProxmox
 
@@ -37,6 +38,8 @@ class Core:
         self.scheduler_kick = asyncio.Event()
         self.tick_lock = asyncio.Lock()
         self._tasks: set[asyncio.Task] = set()
+        # Opened console streams waiting for the browser's websocket: token -> (user id, stream)
+        self._consoles: dict[str, tuple[int, ConsoleStream]] = {}
         self._cache: dict[tuple, tuple[float, Any]] = {}
 
     def cluster(self, cluster_id: str) -> ClusterConfig:
@@ -66,6 +69,28 @@ class Core:
         async def fetch():
             return {v["vmid"]: v for v in await self.driver(cluster_id).vms()}
         return await self.cached((cluster_id, "vms"), fetch)
+
+    # -- consoles --------------------------------------------------------
+
+    def hold_console(self, user_id: int, stream: ConsoleStream, ttl: float = 20.0) -> str:
+        """Park an open console until its owner's websocket claims it (once)."""
+        token = secrets.token_urlsafe(32)
+        self._consoles[token] = (user_id, stream)
+
+        def expire() -> None:
+            entry = self._consoles.pop(token, None)
+            if entry:
+                asyncio.ensure_future(entry[1].close())
+
+        asyncio.get_running_loop().call_later(ttl, expire)
+        return token
+
+    def claim_console(self, token: str, user_id: int | None) -> ConsoleStream | None:
+        entry = self._consoles.get(token)
+        if not entry or entry[0] != user_id:
+            return None
+        del self._consoles[token]
+        return entry[1]
 
     # -- audit + jobs ----------------------------------------------------
 

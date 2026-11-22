@@ -34,6 +34,8 @@ clusters:
     bridge: vmbr1
     # vlan: 20
     vmid_range: [1000, 1999]                # the portal only allocates IDs in this range
+    # VMs join NetBird under their name, so show <name>.<domain> in connection details.
+    # connect_domain: netbird.selfhosted
     backup_storage: pbs                     # Proxmox storage id of the PBS datastore
     limits: { max_cores: 32, max_memory_mb: 131072, max_disk_gb: 500 }   # per VM
     templates:
@@ -42,10 +44,11 @@ clusters:
         vmid: 9000
         default_user: baker
         description: Ubuntu with NVIDIA drivers, Sunshine, CUDA and ROS 2 baked in.
+        connect: [ssh, sunshine]            # what the VM page offers besides the console
         # Optional vendor-data snippet (e.g. NetBird enrolment); merged with the
         # user + SSH key the portal sets. Must be on storage every node can read.
         # cicustom: vendor=cephfs:snippets/macs-vendor.yaml
-      - { id: win11, name: Windows 11, vmid: 9001, os: windows }
+      - { id: win11, name: Windows 11, vmid: 9001, os: windows, connect: [rdp, sunshine] }
     gpu:
       # Datacenter > Resource Mappings > PCI devices: one mapping containing the
       # 4090 on every node. Without a mapping, set `pci:` per device and use

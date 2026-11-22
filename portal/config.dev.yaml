@@ -28,11 +28,12 @@ clusters:
     storage: ceph-vm
     shared_storage: true
     backup_storage: pbs
+    connect_domain: netbird.selfhosted
     limits: { max_cores: 32, max_memory_mb: 131072, max_disk_gb: 500 }
     templates:
       - { id: golden-jam, name: Ubuntu desktop (golden-jam), vmid: 9000, default_user: baker,
-          description: "Ubuntu with NVIDIA drivers, Sunshine, CUDA and ROS 2 baked in." }
-      - { id: win11, name: Windows 11, vmid: 9001, os: windows }
+          description: "Ubuntu with NVIDIA drivers, Sunshine, CUDA and ROS 2 baked in.", connect: [ssh, sunshine] }
+      - { id: win11, name: Windows 11, vmid: 9001, os: windows, connect: [rdp, sunshine] }
     gpu:
       mapping: rtx4090
       devices:

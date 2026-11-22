@@ -9,11 +9,98 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import struct
 import time
 from typing import Any
 
 from ..config import ClusterConfig
-from .base import ProxmoxDriver, ProxmoxError, hostpci_entries
+from .base import ConsoleStream, ProxmoxDriver, ProxmoxError, hostpci_entries
+
+
+class MockConsole(ConsoleStream):
+    """A tiny RFB 3.8 server: one static screen, plus a block drawn per key
+    press so input can be seen to arrive. Enough for a real noVNC client."""
+
+    WIDTH, HEIGHT = 800, 450
+
+    def __init__(self, name: str):
+        self.password = "mock"
+        self.name = name
+        self.keys = 0
+        self._in = asyncio.StreamReader()
+        self._out: asyncio.Queue[bytes | None] = asyncio.Queue()
+        self._task = asyncio.get_running_loop().create_task(self._serve())
+
+    async def recv(self):
+        return await self._out.get()
+
+    async def send(self, data):
+        self._in.feed_data(data)
+
+    async def close(self):
+        self._task.cancel()
+        self._out.put_nowait(None)
+
+    def _rect(self, x: int, y: int, w: int, h: int, rgb: tuple[int, int, int], shifts: tuple[int, int, int]) -> bytes:
+        pixel = struct.pack("<I", sum(c << s for c, s in zip(rgb, shifts)))
+        return struct.pack(">HHHHi", x, y, w, h, 0) + pixel * (w * h)
+
+    async def _serve(self) -> None:
+        r, put = self._in, self._out.put_nowait
+        try:
+            put(b"RFB 003.008\n")
+            await r.readexactly(12)
+            put(bytes([1, 1]))                       # one security type: None
+            await r.readexactly(1)
+            put(struct.pack(">I", 0))                # SecurityResult OK
+            await r.readexactly(1)                   # ClientInit
+            title = f"{self.name} (mock console)".encode()
+            put(struct.pack(">HHBBBBHHHBBBxxxI", self.WIDTH, self.HEIGHT, 32, 24, 0, 1, 255, 255, 255, 16, 8, 0,
+                            len(title)) + title)
+            shifts, drawn, painted, waiting = (16, 8, 0), 0, False, False
+
+            def flush(full: bool) -> bool:
+                """Send whatever changed; like a real server, stay silent if nothing did."""
+                nonlocal drawn, painted
+                rects = []
+                if full or not painted:
+                    painted, drawn = True, 0
+                    rects.append(self._rect(0, 0, self.WIDTH, self.HEIGHT, (16, 20, 28), shifts))
+                    rects += [self._rect(24, 28 + 22 * i, w, 10, (90, 200, 130), shifts)
+                              for i, w in enumerate((260, 420, 180))]
+                while drawn < self.keys:
+                    rects.append(self._rect(24 + 12 * (drawn % 60), 110 + 22 * (drawn // 60), 9, 14,
+                                            (230, 230, 230), shifts))
+                    drawn += 1
+                if rects:
+                    put(struct.pack(">BxH", 0, len(rects)) + b"".join(rects))
+                return bool(rects)
+
+            while True:
+                kind = (await r.readexactly(1))[0]
+                if kind == 0:                        # SetPixelFormat
+                    fmt = await r.readexactly(19)
+                    shifts = (fmt[13], fmt[14], fmt[15])
+                elif kind == 2:                      # SetEncodings
+                    (count,) = struct.unpack(">xH", await r.readexactly(3))
+                    await r.readexactly(4 * count)
+                elif kind == 3:                      # FramebufferUpdateRequest
+                    incremental = (await r.readexactly(9))[0]
+                    waiting = not flush(full=not incremental)
+                elif kind == 4:                      # KeyEvent
+                    self.keys += (await r.readexactly(7))[0]
+                    if waiting:                      # answer the request the viewer left open
+                        waiting = not flush(full=False)
+                elif kind == 5:                      # PointerEvent
+                    await r.readexactly(5)
+                elif kind == 6:                      # ClientCutText
+                    (length,) = struct.unpack(">xxxI", await r.readexactly(7))
+                    await r.readexactly(length)
+                else:
+                    break
+        except (asyncio.IncompleteReadError, asyncio.CancelledError):
+            pass
+        put(None)
 
 
 class MockProxmox(ProxmoxDriver):
@@ -23,6 +110,7 @@ class MockProxmox(ProxmoxDriver):
         self.node_names = sorted({d.node for d in cfg.gpu.devices}) or ["pve1", "pve2", "pve3"]
         self.guests: dict[int, dict[str, Any]] = {}
         self.backup_store: list[dict[str, Any]] = []
+        self.consoles: list[MockConsole] = []
         if cfg.mock_state_file and os.path.exists(cfg.mock_state_file):
             with open(cfg.mock_state_file) as fh:
                 state = json.load(fh)
@@ -215,3 +303,13 @@ class MockProxmox(ProxmoxDriver):
         g.update(vmid=vmid, node=node, status="stopped")
         self.guests[vmid] = g
         self._save()
+
+    # -- console ---------------------------------------------------------
+
+    async def open_console(self, node, vmid):
+        g = self._get(node, vmid)
+        if g["status"] != "running":
+            raise ProxmoxError(f"VM {vmid} is not running")
+        console = MockConsole(g["name"])
+        self.consoles.append(console)
+        return console

@@ -13,6 +13,23 @@ class ProxmoxError(Exception):
     pass
 
 
+class ConsoleStream(ABC):
+    """A live VNC (RFB) byte stream to a VM's display, as served by Proxmox."""
+
+    #: VNC password the viewer must present (Proxmox's one-time ticket).
+    password: str = ""
+
+    @abstractmethod
+    async def recv(self) -> bytes | None:
+        """Next chunk from the VM, or None once the stream has closed."""
+
+    @abstractmethod
+    async def send(self, data: bytes) -> None: ...
+
+    @abstractmethod
+    async def close(self) -> None: ...
+
+
 class ProxmoxDriver(ABC):
     """All mutating calls block until the Proxmox task has finished and raise
     ProxmoxError if it failed."""
@@ -69,6 +86,10 @@ class ProxmoxDriver(ABC):
 
     @abstractmethod
     async def restore(self, node: str, vmid: int, volid: str, storage: str, force: bool = False) -> None: ...
+
+    @abstractmethod
+    async def open_console(self, node: str, vmid: int) -> ConsoleStream:
+        """Open the VM's graphical console. The caller must close() it."""
 
     async def close(self) -> None:
         return None

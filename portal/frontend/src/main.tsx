@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { StrictMode } from "react";
+import { StrictMode, Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { ApiError, useApprovals, useAuthConfig, useMe } from "./api";
@@ -11,6 +11,9 @@ import NewVM from "./pages/NewVM";
 import VMDetail from "./pages/VMDetail";
 import VMs from "./pages/VMs";
 import { cx } from "./ui";
+
+// noVNC is large and only needed on the console page.
+const Console = lazy(() => import("./pages/Console"));
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: true, retry: 1 } } });
 
@@ -53,6 +56,7 @@ function Shell() {
           <Route path="/" element={<VMs />} />
           <Route path="/new" element={<NewVM />} />
           <Route path="/vms/:id" element={<VMDetail />} />
+          <Route path="/vms/:id/console" element={<Suspense fallback={null}><Console /></Suspense>} />
           <Route path="/gpus" element={<Gpus />} />
           <Route path="/admin" element={me.data.is_admin ? <Admin /> : <Navigate to="/" />} />
           <Route path="*" element={<Navigate to="/" />} />

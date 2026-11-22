@@ -58,8 +58,11 @@ export interface Reservation {
   status: "scheduled" | "active" | "completed" | "cancelled" | "failed"; gpu_id: string | null; note: string; error: string;
 }
 export interface Backup { id: number; volid: string; notes: string; size: number; created_at: string }
+export interface Connection {
+  kind: "ssh" | "rdp" | "sunshine"; label: string; host: string; hosts: string[]; port: number; user: string; command: string; url?: string;
+}
 export interface VMDetail extends VM {
-  login_user: string | null; os: string | null; ips: string[]; jobs: Job[]; reservations: Reservation[]; backups: Backup[];
+  connections: Connection[]; os: string | null; ips: string[]; jobs: Job[]; reservations: Reservation[]; backups: Backup[];
 }
 export interface GpuDevice {
   id: string; node: string; model: string;
