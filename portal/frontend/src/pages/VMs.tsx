@@ -28,8 +28,12 @@ function ClusterCard({ c }: { c: Cluster }) {
         <Badge tone={c.approval === "none" ? "ok" : "warn"}>{c.approval === "none" ? "self-service" : "needs approval"}</Badge>
         {c.has_gpus && <Badge tone="gpu">{c.gpu_count} GPUs</Badge>}
         {c.has_backups && <Badge>backups</Badge>}
+        {c.network.isolated && <Badge>isolated network</Badge>}
       </div>
       {c.description && <p className="mt-1 text-sm text-mute">{c.description}</p>}
+      {(c.network.label || c.network.description) && (
+        <p className="mt-2 text-xs text-mute"><span className="font-medium text-ink">{c.network.label || "Network"}:</span> {c.network.description}</p>
+      )}
       {c.error ? (
         <p className="mt-3 text-sm text-bad">Cluster unreachable: {c.error}</p>
       ) : (

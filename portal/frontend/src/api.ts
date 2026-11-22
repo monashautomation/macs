@@ -29,7 +29,19 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
 export interface UserRef { id: number; username: string; name: string }
 export interface Me extends UserRef { email: string; groups: string[]; is_admin: boolean; ssh_public_key: string }
 export interface AuthConfig { app_name: string; mode: "oidc" | "dev"; dev_users: { username: string; name: string; groups: string[] }[] }
-export interface Template { id: string; name: string; os: "linux" | "windows"; description: string; default_user: string; gpu_capable: boolean }
+export interface Image {
+  id: string; name: string; kind: "template" | "iso"; os: "linux" | "windows" | "other"; description: string;
+  default_user: string; gpu_ready: boolean; tags: string[];
+}
+export interface AdminImage extends Image {
+  db_id: number; cluster_id: string; vmid: number | null; volid: string; cicustom: string;
+  connect: ("ssh" | "rdp" | "sunshine")[] | null; enabled: boolean; vm_count: number; missing: boolean;
+}
+export interface Service {
+  id: number; vm_id: number; vm_name: string; cluster_id: string; owner: UserRef; name: string; description: string;
+  port: number; protocol: "tcp" | "udp"; scheme: "" | "http" | "https"; status: "pending" | "published" | "rejected";
+  review_note: string; address: string | null; url: string | null; created_at: string;
+}
 export interface Cluster {
   id: string; name: string; kind: "research" | "homelab"; description: string; approval: "required" | "none";
   has_gpus: boolean; gpu_count: number; has_backups: boolean;
@@ -37,7 +49,8 @@ export interface Cluster {
   quota: { max_vms: number; max_cores: number; max_memory_mb: number; max_disk_gb: number };
   usage: { vms: number; cores: number; memory_mb: number; disk_gb: number };
   gpu_rules: { max_reservation_hours: number; max_advance_days: number };
-  templates: Template[];
+  images: Image[];
+  network: { label: string; description: string; isolated: boolean; services: boolean; service_approval: "none" | "required"; max_services_per_vm: number };
   nodes: { node: string; status: string; cpu: number; maxcpu: number; mem: number; maxmem: number }[];
   error: string | null;
 }
@@ -62,7 +75,7 @@ export interface Connection {
   kind: "ssh" | "rdp" | "sunshine"; label: string; host: string; hosts: string[]; port: number; user: string; command: string; url?: string;
 }
 export interface VMDetail extends VM {
-  connections: Connection[]; os: string | null; ips: string[]; jobs: Job[]; reservations: Reservation[]; backups: Backup[];
+  connections: Connection[]; image: Image | null; services: Service[]; ips: string[]; jobs: Job[]; reservations: Reservation[]; backups: Backup[];
 }
 export interface GpuDevice {
   id: string; node: string; model: string;
@@ -87,8 +100,27 @@ export const useReservations = (clusterId: string, start: Date, end: Date) =>
     queryFn: () => api<Reservation[]>(`/api/reservations?cluster_id=${clusterId}&start=${start.toISOString()}&end=${end.toISOString()}`),
     refetchInterval: 15_000,
   });
+export interface Approvals { vms: VM[]; services: Service[] }
 export const useApprovals = (enabled: boolean) =>
-  useQuery({ queryKey: ["approvals"], queryFn: () => api<VM[]>("/api/admin/approvals"), refetchInterval: 15_000, enabled });
+  useQuery({ queryKey: ["approvals"], queryFn: () => api<Approvals>("/api/admin/approvals"), refetchInterval: 15_000, enabled });
+export const pendingCount = (a?: Approvals) => (a ? a.vms.length + a.services.length : 0);
+export const useServices = () => useQuery({ queryKey: ["services"], queryFn: () => api<Service[]>("/api/services"), refetchInterval: 30_000 });
+
+export interface Overview {
+  id: string; name: string; kind: string; error: string | null; nodes: Cluster["nodes"];
+  vms: { managed: number; owners: number; archived: number; running: number; unmanaged: number };
+  allocated: { cores: number; memory_mb: number; disk_gb: number };
+  capacity: { cores: number; memory_mb: number };
+  gpus: { total: number; in_use: number; booked: number; upcoming: number } | null;
+  pending: { vms: number; gpu: number; services: number };
+  network: {
+    label: string; isolated: boolean; services: boolean; published: number; firewall_ok: boolean | null;
+    access_ports: number[]; access_sources: string[]; public_sources: string[]; service_approval: string;
+    bridge: string; vlan: number | null;
+  };
+  images: number;
+}
+export const useOverview = () => useQuery({ queryKey: ["overview"], queryFn: () => api<Overview[]>("/api/admin/overview"), refetchInterval: 10_000 });
 
 /** A mutation that refreshes every live query when it settles. */
 export function useAct<TArgs = void, TOut = unknown>(fn: (args: TArgs) => Promise<TOut>) {

@@ -5,6 +5,7 @@ so secrets stay out of the file.
 """
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 from functools import lru_cache
@@ -66,23 +67,63 @@ class AuthConfig(BaseModel):
 
 
 class Template(BaseModel):
+    """Seeds the image library on first start; afterwards the infrastructure
+    team curates the library in the portal (Infrastructure > Images)."""
     id: str
     name: str
-    vmid: int
-    os: Literal["linux", "windows"] = "linux"
+    kind: Literal["template", "iso"] = "template"
+    vmid: int | None = None          # kind=template: the Proxmox template VM
+    volid: str = ""                  # kind=iso: e.g. "cephfs:iso/ubuntu-24.04.iso"
+    os: Literal["linux", "windows", "other"] = "linux"
     description: str = ""
-    default_user: str = "ubuntu"
+    default_user: str = ""
     # Optional Proxmox cicustom value, e.g. "vendor=cephfs:snippets/macs-vendor.yaml"
     # (vendor-data merges with the generated user/ssh-key config).
     cicustom: str = ""
-    gpu_capable: bool = True
+    # Built with NVIDIA drivers, i.e. works with the passthrough GPUs out of the box.
+    gpu_ready: bool = False
+    tags: list[str] = []
     # Ways to reach the VM that the portal advertises on its page. Default:
     # [ssh] for linux, [rdp] for windows. "sunshine" = Moonlight game streaming.
     connect: list[Literal["ssh", "rdp", "sunshine"]] | None = None
 
-    @property
-    def connections(self) -> list[str]:
-        return self.connect if self.connect is not None else (["rdp"] if self.os == "windows" else ["ssh"])
+    @model_validator(mode="after")
+    def _check(self):
+        if self.kind == "template" and self.vmid is None:
+            raise ValueError(f"template {self.id}: vmid required")
+        if self.kind == "iso" and not self.volid:
+            raise ValueError(f"iso {self.id}: volid required")
+        return self
+
+
+def _cidrs(values: list[str]) -> list[str]:
+    for v in values:
+        ipaddress.ip_network(v, strict=False)  # raises ValueError on junk
+    return values
+
+
+class NetworkConfig(BaseModel):
+    """How a cluster's VMs sit on the network, and what the portal enforces."""
+    label: str = ""                  # shown to users, e.g. "Labs network"
+    description: str = ""
+    # Enforce a per-VM Proxmox firewall: inbound is dropped unless allowed
+    # below, so VMs cannot reach each other. Needs the datacenter firewall on.
+    isolate: bool = False
+    # Ports the owner uses to get in (SSH/RDP), and who may reach them.
+    access_ports: list[int] = [22]
+    access_sources: list[str] = []   # IPs/CIDRs; empty = anywhere
+    # Let users publish a port on their VM as a "public service".
+    services: bool = False
+    service_approval: Literal["none", "required"] = "none"
+    # Who may reach published ports, e.g. the NetBird routing peer or range.
+    public_sources: list[str] = []   # IPs/CIDRs; empty = anywhere
+    max_services_per_vm: int = 5
+
+    @model_validator(mode="after")
+    def _check(self):
+        _cidrs(self.access_sources)
+        _cidrs(self.public_sources)
+        return self
 
 
 class Limits(BaseModel):
@@ -161,6 +202,9 @@ class ClusterConfig(BaseModel):
     connect_domain: str = ""
     # Proxmox storage id of the Proxmox Backup Server datastore. Empty = no backups.
     backup_storage: str = ""
+    # Proxmox storage holding install ISOs the infrastructure team can add to the library.
+    iso_storage: str = ""
+    network: NetworkConfig = NetworkConfig()
 
     limits: Limits = Limits()
     quota: Quota = Quota()
@@ -175,9 +219,6 @@ class ClusterConfig(BaseModel):
             if not ((self.token_id and self.token_secret) or (self.username and self.password)):
                 raise ValueError(f"cluster {self.id}: token_id/token_secret or username/password required")
         return self
-
-    def template(self, template_id: str) -> Template | None:
-        return next((t for t in self.templates if t.id == template_id), None)
 
     def gpu_device(self, gpu_id: str) -> GpuDevice | None:
         return next((d for d in self.gpu.devices if d.id == gpu_id), None)

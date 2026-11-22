@@ -36,8 +36,15 @@ clusters:
     vmid_range: [1000, 1999]                # the portal only allocates IDs in this range
     # VMs join NetBird under their name, so show <name>.<domain> in connection details.
     # connect_domain: netbird.selfhosted
-    backup_storage: pbs                     # Proxmox storage id of the PBS datastore
+    backup_storage: pbs
+    iso_storage: cephfs                     # ISOs here can be added to the image library
+    network:
+      label: Labs network
+      description: VMs sit directly on the labs LAN and can reach lab equipment.
+      # isolate defaults to false: the portal does not firewall research VMs.                     # Proxmox storage id of the PBS datastore
     limits: { max_cores: 32, max_memory_mb: 131072, max_disk_gb: 500 }   # per VM
+    # `templates` only seeds the image library the first time the portal starts.
+    # After that the infrastructure team manages it under Infrastructure > Image library.
     templates:
       - id: golden-jam
         name: Ubuntu desktop (golden-jam)
@@ -45,10 +52,12 @@ clusters:
         default_user: baker
         description: Ubuntu with NVIDIA drivers, Sunshine, CUDA and ROS 2 baked in.
         connect: [ssh, sunshine]            # what the VM page offers besides the console
+        gpu_ready: true                     # NVIDIA drivers baked in: works with the 4090s as-is
+        tags: [desktop, cuda, ros2]
         # Optional vendor-data snippet (e.g. NetBird enrolment); merged with the
         # user + SSH key the portal sets. Must be on storage every node can read.
         # cicustom: vendor=cephfs:snippets/macs-vendor.yaml
-      - { id: win11, name: Windows 11, vmid: 9001, os: windows, connect: [rdp, sunshine] }
+      - { id: win11, name: Windows 11, vmid: 9001, os: windows, connect: [rdp, sunshine], gpu_ready: true }
     gpu:
       # Datacenter > Resource Mappings > PCI devices: one mapping containing the
       # 4090 on every node. Without a mapping, set `pci:` per device and use
@@ -80,5 +89,22 @@ clusters:
     vmid_range: [1000, 1999]
     limits: { max_cores: 4, max_memory_mb: 8192, max_disk_gb: 80 }
     quota: { max_vms: 3, max_cores: 8, max_memory_mb: 16384, max_disk_gb: 160 }  # per user, 0 = unlimited
+    iso_storage: local
+    network:
+      label: Homelab network
+      description: VMs are isolated from each other. Reach yours over NetBird, and publish ports to share a service.
+      # Turn on each VM's Proxmox firewall with inbound dropped by default, so
+      # homelab VMs cannot reach each other. Requires Datacenter > Firewall enabled.
+      isolate: true
+      # The owner's way in, and where from (your NetBird range or routing peer).
+      access_ports: [22, 3389]
+      access_sources: [100.64.0.0/10]
+      # Users may publish further ports as "public services", reachable from:
+      services: true
+      public_sources: [100.64.0.0/10]
+      service_approval: none                # or `required` to have the infra team approve each one
+      max_services_per_vm: 5
     templates:
-      - { id: ubuntu, name: Ubuntu 24.04 server, vmid: 9000, default_user: ubuntu, gpu_capable: false }
+      - { id: ubuntu, name: Ubuntu 24.04 server, vmid: 9000, default_user: ubuntu }
+      # An install ISO: users get an empty VM booted from it and install via the console.
+      # - { id: debian-iso, name: Debian 12 installer, kind: iso, volid: "local:iso/debian-12.8.0-amd64-netinst.iso" }

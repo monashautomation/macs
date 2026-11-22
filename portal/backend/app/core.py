@@ -33,6 +33,9 @@ class Core:
         self.Session = session_factory or make_session_factory(cfg.app.database_url)
         self.drivers: dict[str, ProxmoxDriver] = drivers or {
             c.id: (MockProxmox(c, delay=0.6, demo=True) if c.driver == "mock" else ProxmoxClient(c)) for c in cfg.clusters}
+        from .services import images
+        with self.Session.begin() as db:
+            images.seed(cfg, db)
         self.gpu_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self.provision_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self.scheduler_kick = asyncio.Event()

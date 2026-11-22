@@ -196,6 +196,30 @@ class ProxmoxClient(ProxmoxDriver):
         await self._task("POST", f"/nodes/{node}/qemu", vmid=vmid, archive=volid, storage=storage,
                          force=1 if force else None)
 
+    # -- blank VMs, storage, firewall ------------------------------------
+
+    async def create_vm(self, node, vmid, **params) -> None:
+        await self._task("POST", f"/nodes/{node}/qemu", vmid=vmid, **params)
+
+    async def storage_content(self, node, storage, content) -> list[dict[str, Any]]:
+        res = await self._call("GET", f"/nodes/{node}/storage/{storage}/content", content=content)
+        return sorted(({"volid": v["volid"], "size": v.get("size", 0)} for v in res), key=lambda v: v["volid"])
+
+    async def firewall_set_options(self, node, vmid, **options) -> None:
+        await self._call("PUT", f"/nodes/{node}/qemu/{vmid}/firewall/options", **options)
+
+    async def firewall_rules(self, node, vmid) -> list[dict[str, Any]]:
+        return await self._call("GET", f"/nodes/{node}/qemu/{vmid}/firewall/rules") or []
+
+    async def firewall_add_rule(self, node, vmid, **rule) -> None:
+        await self._call("POST", f"/nodes/{node}/qemu/{vmid}/firewall/rules", pos=0, enable=1, **rule)
+
+    async def firewall_delete_rule(self, node, vmid, pos) -> None:
+        await self._call("DELETE", f"/nodes/{node}/qemu/{vmid}/firewall/rules/{pos}")
+
+    async def cluster_firewall_enabled(self) -> bool:
+        return bool((await self._call("GET", "/cluster/firewall/options") or {}).get("enable"))
+
     # -- console ---------------------------------------------------------
 
     async def open_console(self, node, vmid) -> ConsoleStream:

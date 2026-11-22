@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { type VM, api, useAct, useClusters, useMe } from "../api";
 import { Badge, Button, Card, ErrorNote, Field, cx, inputCls } from "../ui";
+import { ImageBadges } from "./Images";
 
 const pick = (options: number[], max: number) => options.filter((o) => o <= max);
 
@@ -9,8 +10,9 @@ export default function NewVM() {
   const clusters = useClusters();
   const me = useMe();
   const nav = useNavigate();
-  const [clusterId, setClusterId] = useState("");
-  const [templateId, setTemplateId] = useState("");
+  const [params] = useSearchParams();
+  const [clusterId, setClusterId] = useState(params.get("cluster") ?? "");
+  const [templateId, setTemplateId] = useState(params.get("image") ?? "");
   const [name, setName] = useState("");
   const [cores, setCores] = useState(2);
   const [memory, setMemory] = useState(4096);
@@ -20,7 +22,8 @@ export default function NewVM() {
   const [why, setWhy] = useState("");
 
   const cluster = clusters.data?.find((c) => c.id === clusterId) ?? clusters.data?.[0];
-  const template = cluster?.templates.find((t) => t.id === templateId) ?? cluster?.templates[0];
+  const template = cluster?.images.find((t) => t.id === templateId) ?? cluster?.images[0];
+  const needsKey = template?.kind === "template" && template.os === "linux";
 
   useEffect(() => {
     if (me.data?.ssh_public_key && !sshKey) setSshKey(me.data.ssh_public_key);
@@ -37,7 +40,7 @@ export default function NewVM() {
       method: "POST",
       body: {
         cluster_id: cluster!.id, template_id: template!.id, name, cores, memory_mb: memory, disk_gb: disk,
-        ssh_public_key: template!.os === "linux" ? sshKey : "", wants_gpu: wantsGpu && gpuPossible, justification: why,
+        ssh_public_key: needsKey ? sshKey : "", wants_gpu: wantsGpu && gpuPossible, justification: why,
       },
     }).then((vm) => nav(`/vms/${vm.id}`)),
   );
@@ -45,7 +48,7 @@ export default function NewVM() {
   if (!clusters.data) return null;
   if (!cluster) return <p className="text-sm text-mute">You do not have access to any cluster yet.</p>;
   const needsApproval = cluster.approval === "required";
-  const gpuPossible = cluster.has_gpus && !!template?.gpu_capable;
+  const gpuPossible = cluster.has_gpus;
 
   return (
     <form className="mx-auto max-w-2xl space-y-4" onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
@@ -60,7 +63,8 @@ export default function NewVM() {
                 <span className="font-medium">{c.name}</span>
                 {c.has_gpus && <Badge tone="gpu">GPU</Badge>}
               </div>
-              <p className="mt-1 text-xs text-mute">{c.approval === "none" ? "Ready in a minute or two, no approval needed." : "An admin reviews each request."}</p>
+              <p className="mt-1 text-xs text-mute">{c.approval === "none" ? "Ready in a minute or two, no approval needed." : "The infrastructure team reviews each request."}</p>
+              {c.network.description && <p className="mt-1 text-xs text-mute">{c.network.description}</p>}
             </button>
           ))}
         </div>
@@ -71,11 +75,25 @@ export default function NewVM() {
           <Field label="Name" hint="Becomes the hostname. Lowercase letters, digits and dashes.">
             <input className={inputCls} value={name} onChange={(e) => setName(e.target.value.toLowerCase())} placeholder="my-vm" required pattern="[a-z]([a-z0-9\-]{0,38}[a-z0-9])?" />
           </Field>
-          <Field label="Image" hint={template?.description}>
-            <select className={inputCls} value={template?.id ?? ""} onChange={(e) => setTemplateId(e.target.value)}>
-              {cluster.templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          </Field>
+          <div>
+            <div className="mb-1 flex items-baseline justify-between">
+              <span className="text-sm font-medium">Image</span>
+              <Link to="/images" className="text-xs text-brand hover:underline">Browse the library</Link>
+            </div>
+            {cluster.images.length ? (
+              <div className="grid max-h-72 gap-2 overflow-y-auto sm:grid-cols-2">
+                {cluster.images.map((t) => (
+                  <button type="button" key={t.id} onClick={() => setTemplateId(t.id)} aria-pressed={t.id === template?.id}
+                    className={cx("rounded-lg border p-3 text-left", t.id === template?.id ? "border-brand bg-brand-soft" : "border-line hover:bg-sunken")}>
+                    <span className="block text-sm font-medium">{t.name}</span>
+                    <span className="mt-1.5 flex flex-wrap gap-1"><ImageBadges image={t} /></span>
+                  </button>
+                ))}
+              </div>
+            ) : <p className="text-sm text-mute">No images are available on this cluster yet.</p>}
+            {template?.description && <p className="mt-2 text-xs text-mute">{template.description}</p>}
+            {template?.kind === "iso" && <p className="mt-2 rounded-md bg-warn-soft px-3 py-2 text-xs text-warn">This boots an installer on an empty disk. Open the VM's console afterwards to install the operating system yourself.</p>}
+          </div>
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="vCPUs">
               <select className={inputCls} value={cores} onChange={(e) => setCores(+e.target.value)}>
@@ -93,8 +111,8 @@ export default function NewVM() {
               </select>
             </Field>
           </div>
-          {template?.os === "linux" && (
-            <Field label="SSH public key" hint={<>You will sign in as <code>{template.default_user}</code> with this key. Remembered for next time.</>}>
+          {needsKey && (
+            <Field label="SSH public key" hint={<>You will sign in as <code>{template!.default_user || "the image's default user"}</code> with this key. Remembered for next time.</>}>
               <textarea className={cx(inputCls, "font-mono text-xs")} rows={3} value={sshKey} onChange={(e) => setSshKey(e.target.value)} placeholder="ssh-ed25519 AAAA… you@laptop" required />
             </Field>
           )}
@@ -110,6 +128,7 @@ export default function NewVM() {
                 <span>
                   <span className="text-sm font-medium">Request GPU access</span>
                   <span className="block text-xs text-mute">Once approved you can book GPU time for this VM. The GPU is attached only during your bookings.</span>
+                  {wantsGpu && template && !template.gpu_ready && <span className="mt-1 block text-xs text-warn">This image has no NVIDIA drivers installed; pick a GPU-ready image unless you plan to install them yourself.</span>}
                 </span>
               </label>
             )}
@@ -125,7 +144,7 @@ export default function NewVM() {
       <ErrorNote error={create.error} />
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={() => nav("/")}>Cancel</Button>
-        <Button type="submit" variant="primary" disabled={create.isPending}>
+        <Button type="submit" variant="primary" disabled={create.isPending || !template}>
           {create.isPending ? "Submitting…" : needsApproval ? "Request VM" : "Create VM"}
         </Button>
       </div>

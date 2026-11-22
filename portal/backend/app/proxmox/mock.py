@@ -7,6 +7,7 @@ cannot migrate) so the portal's logic is exercised realistically.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import os
 import struct
@@ -111,15 +112,21 @@ class MockProxmox(ProxmoxDriver):
         self.guests: dict[int, dict[str, Any]] = {}
         self.backup_store: list[dict[str, Any]] = []
         self.consoles: list[MockConsole] = []
+        self.datacenter_firewall = True
+        self.isos = [{"volid": f"{cfg.iso_storage}:iso/{name}", "size": size * 1024 ** 2} for name, size in (
+            ("debian-12.8.0-amd64-netinst.iso", 631), ("ubuntu-24.04.1-live-server-amd64.iso", 2640),
+            ("nixos-minimal-24.11-x86_64-linux.iso", 1105), ("Win11_24H2_English_x64.iso", 5550))
+        ] if cfg.iso_storage else []
         if cfg.mock_state_file and os.path.exists(cfg.mock_state_file):
             with open(cfg.mock_state_file) as fh:
                 state = json.load(fh)
             self.guests = {int(k): v for k, v in state["guests"].items()}
             self.backup_store = state["backups"]
         else:
-            for t in cfg.templates:
+            for t in (t for t in cfg.templates if t.kind == "template"):
                 self.guests[t.vmid] = self._guest(t.vmid, t.id, self.node_names[0], template=True,
-                                                  config={"cores": 2, "memory": 2048, "scsi0": f"{cfg.storage}:base-{t.vmid}-disk-0,size=20G"})
+                                                  config={"cores": 2, "memory": 2048, "net0": "virtio=BC:24:11:00:00:01,bridge=vmbr0",
+                                                          "scsi0": f"{cfg.storage}:base-{t.vmid}-disk-0,size=20G"})
             if demo and cfg.gpu.devices:
                 # Something for the "unmanaged VM holding a GPU" paths to chew on.
                 d = cfg.gpu.devices[-1]
@@ -303,6 +310,63 @@ class MockProxmox(ProxmoxDriver):
         g.update(vmid=vmid, node=node, status="stopped")
         self.guests[vmid] = g
         self._save()
+
+    # -- blank VMs, storage, firewall ------------------------------------
+
+    async def create_vm(self, node, vmid, **params):
+        if vmid in self.guests:
+            raise ProxmoxError(f"VM {vmid} already exists")
+        if node not in self.node_names:
+            raise ProxmoxError(f"no such node {node}")
+        await self._work()
+        name = params.pop("name", f"vm-{vmid}")
+        # Like Proxmox, "storage:40" allocates a 40G volume.
+        config = {k: (f"{v.split(':')[0]}:vm-{vmid}-disk-0,size={v.split(':')[1].split(',')[0]}G"
+                      if k in ("scsi0", "sata0") else v) for k, v in params.items()}
+        self.guests[vmid] = self._guest(vmid, name, node, config=config)
+        self._save()
+
+    async def storage_content(self, node, storage, content):
+        return [dict(i) for i in self.isos] if content == "iso" and storage == self.cfg.iso_storage else []
+
+    def _fw(self, node, vmid) -> dict:
+        return self._get(node, vmid).setdefault("firewall", {"options": {}, "rules": []})
+
+    async def firewall_set_options(self, node, vmid, **options):
+        self._fw(node, vmid)["options"].update(options)
+        self._save()
+
+    async def firewall_rules(self, node, vmid):
+        return [{**r, "pos": i} for i, r in enumerate(self._fw(node, vmid)["rules"])]
+
+    async def firewall_add_rule(self, node, vmid, **rule):
+        self._fw(node, vmid)["rules"].insert(0, {k: v for k, v in rule.items() if v is not None})
+        self._save()
+
+    async def firewall_delete_rule(self, node, vmid, pos):
+        del self._fw(node, vmid)["rules"][pos]
+        self._save()
+
+    async def cluster_firewall_enabled(self):
+        return self.datacenter_firewall
+
+    def reachable(self, vmid: int, source: str, port: int, proto: str = "tcp") -> bool:
+        """Would a packet from `source` to this VM's port get through its firewall?"""
+        g = self.guests[vmid]
+        fw = g.get("firewall", {"options": {}, "rules": []})
+        nics = [str(v) for k, v in g["config"].items() if k.startswith("net")]
+        if not (self.datacenter_firewall and fw["options"].get("enable") and all("firewall=1" in n for n in nics)):
+            return True
+        src = ipaddress.ip_address(source)
+        for r in fw["rules"]:
+            if r.get("type") != "in" or r.get("proto", proto) != proto:
+                continue
+            if "dport" in r and str(r["dport"]) != str(port):
+                continue
+            if "source" in r and not any(src in ipaddress.ip_network(c, strict=False) for c in r["source"].split(",")):
+                continue
+            return r["action"] == "ACCEPT"
+        return fw["options"].get("policy_in", "DROP") == "ACCEPT"
 
     # -- console ---------------------------------------------------------
 

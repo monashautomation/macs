@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import api, auth
+from . import api, api_infra, auth
 from .config import Config, get_config
 from .core import Core
 from .proxmox.base import ProxmoxError
@@ -39,6 +39,7 @@ def create_app(cfg: Config | None = None, core: Core | None = None, run_schedule
         app.state.oauth = auth._oauth(cfg)
     app.include_router(auth.router)
     app.include_router(api.router)
+    app.include_router(api_infra.router)
 
     @app.exception_handler(ProxmoxError)
     async def proxmox_error(_: Request, exc: ProxmoxError):

@@ -3,10 +3,18 @@
 Web front end for deploying and managing VMs across our Proxmox clusters, with
 GPU tracking, swapping and time-booking on the research cluster.
 
-- **Multiple clusters** — each with its own access groups, templates, limits
-  and approval policy (`config.yaml`).
+- **Two workspaces** — everyone gets *My workspace* (their VMs, the image
+  library, GPU time, services). Members of `auth.admin_groups` also get the
+  *Infrastructure* console: overview, approvals, every VM, GPU swaps, image
+  library, network policy, people, activity and audit log.
+- **Multiple clusters** — each with its own access groups, images, limits,
+  network policy and approval policy (`config.yaml`).
 - **Homelab** — self-service: a student picks an image and size and gets a
-  running VM within their quota.
+  running VM within their quota. VMs are firewalled off from each other;
+  owners publish individual ports as *public services* reachable over NetBird.
+- **Image library** — prepared templates (flagged *GPU-ready* when NVIDIA
+  drivers are baked in) and install ISOs, curated per cluster by the
+  infrastructure team.
 - **Research** — requests (with or without GPU access) wait for an admin.
 - **GPUs** — the portal reads every VM's `hostpciN` config, so it always shows
   which VM really holds each card, including VMs it does not manage. Admins can
@@ -119,6 +127,62 @@ Network connection details come from each template's `connect` list (`ssh`,
 NetBird domain), otherwise the IPs reported by the guest agent. These are
 details for the user's own client; the portal does not proxy SSH or RDP.
 
+## Networks, isolation and public services
+
+Each cluster has a `network` block in `config.yaml`.
+
+**Research** leaves `isolate` off: VMs are attached to the configured
+`bridge`/`vlan` (your labs network) and the portal adds no filtering, so
+services run locally on the lab LAN.
+
+**Homelab** sets `isolate: true`. For every VM it manages there, the portal
+turns on the VM's Proxmox firewall with inbound traffic dropped by default,
+then allows only:
+
+| What | Config | Typical value |
+| --- | --- | --- |
+| The owner's login ports | `access_ports` from `access_sources` | `[22, 3389]` from the NetBird range |
+| Ports the owner publishes | each service's port from `public_sources` | the NetBird range / routing peer |
+
+So homelab VMs cannot connect to each other, an unpublished port is closed to
+everyone, and a published port is reachable from NetBird only. Published
+services are listed for users on the Services page; the infrastructure team
+sees and can close any of them, and `service_approval: required` makes each
+one wait for approval.
+
+Things to know:
+
+- **The datacenter firewall must be enabled** (Datacenter → Firewall → Options)
+  or Proxmox enforces none of this. The Infrastructure overview warns when it
+  is off.
+- If your NetBird routing peer masquerades, the source the VMs see is the
+  routing peer's address on the homelab network — put that in the two
+  `*_sources` lists rather than the NetBird range.
+- The portal only writes rules whose comment starts with `macs:`; rules added
+  by hand are left alone. After changing the policy in `config.yaml`, use
+  Infrastructure → Network & services → *Re-apply to all VMs*.
+- Only portal-managed VMs are covered. Adopting a VM applies the policy to it.
+  For defence in depth against unmanaged VMs, also enable *Isolate Ports* on
+  the homelab SDN VNet.
+- The portal does not configure NetBird itself (routes, DNS, access policies).
+
+## Image library
+
+Users deploy from a per-cluster library (Images page, and the picker when
+creating a VM). The infrastructure team curates it under Infrastructure →
+Image library, which lists Proxmox templates and ISOs found on the cluster that
+are not yet in the library.
+
+- **Prepared images** are Proxmox templates (e.g. built by `img-builds/`),
+  cloned and personalised with cloud-init. Tick **GPU-ready** for ones with
+  NVIDIA drivers baked in; users can filter on it and are warned if they
+  request a GPU with an image that is not.
+- **ISO installers** come from the cluster's `iso_storage`. The user gets an
+  empty UEFI/q35 VM booted from the ISO and installs from the console.
+  (Windows ISOs get SATA, e1000 and a vTPM so setup needs no extra drivers.)
+- Hiding an image removes it from the picker without affecting existing VMs.
+- `templates:` in `config.yaml` only seeds the library on first start.
+
 ## How GPU booking behaves
 
 - A booking reserves *one GPU from the pool*, not a specific card. The portal
@@ -138,5 +202,6 @@ details for the user's own client; the portal does not proxy SSH or RDP.
 - No in-browser SSH terminal or RDP session (console only); users connect
   with their own client using the details shown.
 - No email/chat notifications for approvals or upcoming bookings.
+- No NetBird API integration; ISO upload is done in Proxmox, not the portal.
 - No expiry or idle reclamation of VMs.
 - Database schema is created on start; there are no migrations yet.

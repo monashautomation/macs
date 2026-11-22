@@ -29,11 +29,19 @@ clusters:
     shared_storage: true
     backup_storage: pbs
     connect_domain: netbird.selfhosted
+    iso_storage: cephfs
+    network:
+      label: Labs network
+      description: VMs sit directly on the labs LAN and can reach lab equipment and each other.
     limits: { max_cores: 32, max_memory_mb: 131072, max_disk_gb: 500 }
     templates:
       - { id: golden-jam, name: Ubuntu desktop (golden-jam), vmid: 9000, default_user: baker,
-          description: "Ubuntu with NVIDIA drivers, Sunshine, CUDA and ROS 2 baked in.", connect: [ssh, sunshine] }
-      - { id: win11, name: Windows 11, vmid: 9001, os: windows, connect: [rdp, sunshine] }
+          description: "Ubuntu 22.04 desktop with NVIDIA drivers, CUDA, PyTorch, ROS 2 and Sunshine streaming baked in.",
+          gpu_ready: true, tags: [desktop, cuda, ros2], connect: [ssh, sunshine] }
+      - { id: win11, name: Windows 11, vmid: 9001, os: windows, gpu_ready: true, tags: [desktop],
+          description: "Windows 11 with NVIDIA drivers, Sunshine and RDP enabled.", connect: [rdp, sunshine] }
+      - { id: ubuntu-server, name: Ubuntu 24.04 server, vmid: 9002, default_user: ubuntu, tags: [minimal],
+          description: "Plain cloud image for CPU-only services." }
     gpu:
       mapping: rtx4090
       devices:
@@ -51,8 +59,21 @@ clusters:
     mock_state_file: ./mock-homelab.json
     approval: none
     storage: local-lvm
+    connect_domain: netbird.selfhosted
+    iso_storage: local
+    network:
+      label: Homelab network
+      description: VMs are isolated from each other. Reach yours over NetBird, and publish ports to share a service.
+      isolate: true
+      access_ports: [22]
+      access_sources: [100.64.0.0/10]     # NetBird range
+      services: true
+      public_sources: [100.64.0.0/10]
     limits: { max_cores: 4, max_memory_mb: 8192, max_disk_gb: 80 }
     quota: { max_vms: 3, max_cores: 8, max_memory_mb: 16384, max_disk_gb: 160 }
     templates:
-      - { id: ubuntu, name: Ubuntu 24.04 server, vmid: 9000, default_user: ubuntu, gpu_capable: false }
-      - { id: debian, name: Debian 12, vmid: 9001, default_user: debian, gpu_capable: false }
+      - { id: ubuntu, name: Ubuntu 24.04 server, vmid: 9000, default_user: ubuntu, tags: [minimal],
+          description: "Cloud image: boots in seconds with your SSH key." }
+      - { id: debian, name: Debian 12, vmid: 9001, default_user: debian, tags: [minimal] }
+      - { id: nixos-iso, name: NixOS 24.11 installer, kind: iso, os: other,
+          volid: "local:iso/nixos-minimal-24.11-x86_64-linux.iso", description: "Install NixOS yourself from the console." }

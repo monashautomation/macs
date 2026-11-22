@@ -88,6 +88,34 @@ class ProxmoxDriver(ABC):
     async def restore(self, node: str, vmid: int, volid: str, storage: str, force: bool = False) -> None: ...
 
     @abstractmethod
+    async def create_vm(self, node: str, vmid: int, **params: Any) -> None:
+        """Create an empty VM (used for ISO installs)."""
+
+    @abstractmethod
+    async def storage_content(self, node: str, storage: str, content: str) -> list[dict[str, Any]]:
+        """Volumes of a content type ("iso", ...) on a storage: [{volid, size}]."""
+
+    # Per-VM firewall. Rules are dicts with Proxmox's field names (type, action,
+    # proto, dport, source, comment, ...) plus "pos" when read back.
+
+    @abstractmethod
+    async def firewall_set_options(self, node: str, vmid: int, **options: Any) -> None: ...
+
+    @abstractmethod
+    async def firewall_rules(self, node: str, vmid: int) -> list[dict[str, Any]]: ...
+
+    @abstractmethod
+    async def firewall_add_rule(self, node: str, vmid: int, **rule: Any) -> None:
+        """Insert a rule at the top (position 0)."""
+
+    @abstractmethod
+    async def firewall_delete_rule(self, node: str, vmid: int, pos: int) -> None: ...
+
+    @abstractmethod
+    async def cluster_firewall_enabled(self) -> bool:
+        """VM firewalls only take effect when the datacenter firewall is on."""
+
+    @abstractmethod
     async def open_console(self, node: str, vmid: int) -> ConsoleStream:
         """Open the VM's graphical console. The caller must close() it."""
 

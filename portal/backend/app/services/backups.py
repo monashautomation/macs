@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from ..core import Core, Log
 from ..db import VM, Backup
 from ..proxmox.base import ProxmoxError, hostpci_entries
-from . import gpus
+from . import gpus, network
 from .vms import close_reservations, locate
 
 
@@ -99,6 +99,8 @@ async def restore(core: Core, vm_id: int, volid: str, log: Log) -> None:
         if keep:
             await drv.set_config(node, vm.vmid, **keep)
     core.invalidate(cluster.id)
+    # Likewise the firewall: a backup must not resurrect old published ports.
+    await network.apply(core, vm_id, log)
     log("starting")
     await drv.start(node, vm.vmid)
     with core.Session.begin() as db:

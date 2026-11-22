@@ -181,11 +181,12 @@ function BookingForm({ eligible, maxHours, preselect }: { eligible: VM[]; maxHou
   );
 }
 
-export default function Gpus() {
+/** `admin` is the infrastructure view: every VM, plus swap and release controls. */
+export default function Gpus({ admin = false }: { admin?: boolean }) {
   const me = useMe();
   const gpus = useGpus();
   const clusters = useClusters();
-  const isAdmin = !!me.data?.is_admin;
+  const isAdmin = admin && !!me.data?.is_admin;
   const vms = useVMs(isAdmin ? "all" : "mine");
   const [params] = useSearchParams();
   const [picked, setPicked] = useState("");

@@ -14,10 +14,12 @@ from sqlalchemy.orm import Session
 
 from .auth import can_use, current_user, get_core, is_admin, require_admin
 from .core import Busy, Core
-from .db import VM, VM_LIVE, Audit, Backup, Job, Reservation, User, utcnow
+from .db import VM, VM_LIVE, Audit, Backup, Image, Job, Reservation, Service, User, utcnow
 from .proxmox.base import ProxmoxError
 from .services import backups as backup_svc
 from .services import gpus as gpu_svc
+from .services import images as image_svc
+from .services import network as net_svc
 from .services import schedule
 from .services import vms as vm_svc
 
@@ -133,6 +135,8 @@ async def clusters(user: User = Depends(current_user), core: Core = Depends(get_
             nodes, error = [], str(e)
         with core.Session() as db:
             used = vm_svc.usage(db, user.id, c.id)
+            library = [image_svc.out(i) for i in db.scalars(select(Image).where(
+                Image.cluster_id == c.id, Image.enabled).order_by(Image.gpu_ready.desc(), Image.kind.desc(), Image.name))]
         out.append({
             "id": c.id, "name": c.name, "kind": c.kind, "description": c.description,
             "approval": c.approval, "has_gpus": c.has_gpus, "gpu_count": len(c.gpu.devices),
@@ -140,8 +144,11 @@ async def clusters(user: User = Depends(current_user), core: Core = Depends(get_
             "limits": c.limits.model_dump(), "quota": c.quota.model_dump(), "usage": used,
             "gpu_rules": {"max_reservation_hours": c.gpu.max_reservation_hours,
                           "max_advance_days": c.gpu.max_advance_days},
-            "templates": [{"id": t.id, "name": t.name, "os": t.os, "description": t.description,
-                           "default_user": t.default_user, "gpu_capable": t.gpu_capable} for t in c.templates],
+            "images": library,
+            "network": {"label": c.network.label, "description": c.network.description,
+                        "isolated": c.network.isolate, "services": c.network.services,
+                        "service_approval": c.network.service_approval,
+                        "max_services_per_vm": c.network.max_services_per_vm},
             "nodes": nodes, "error": error,
         })
     return out
@@ -181,14 +188,17 @@ async def create_vm(body: VMCreate, user: User = Depends(current_user), core: Co
     cluster = core.cfg.cluster(body.cluster_id)
     if not cluster or not can_use(core.cfg, user, cluster):
         raise HTTPException(404, "cluster not found")
-    tpl = cluster.template(body.template_id)
-    if not tpl:
-        raise HTTPException(422, "unknown template")
+    with core.Session() as db:
+        tpl = image_svc.get(db, cluster.id, body.template_id)
+    if not tpl or not tpl.enabled:
+        raise HTTPException(422, "that image is not in the library")
     name = body.name.strip().lower()
     if not NAME.match(name):
         raise HTTPException(422, "name must be a hostname: lowercase letters, digits and dashes, up to 40 characters")
     key = body.ssh_public_key.strip()
-    if tpl.os == "linux":
+    if tpl.kind == "iso":
+        key = ""  # nothing to inject a key into; the user runs the installer
+    elif tpl.os == "linux":
         if not key:
             raise HTTPException(422, "an SSH public key is required for Linux VMs")
         if any(not SSH_KEY.match(line.strip()) for line in key.splitlines() if line.strip()):
@@ -197,7 +207,7 @@ async def create_vm(body: VMCreate, user: User = Depends(current_user), core: Co
     if body.cores > lim.max_cores or body.memory_mb > lim.max_memory_mb or body.disk_gb > lim.max_disk_gb:
         raise HTTPException(422, f"over the per-VM limit ({lim.max_cores} cores, "
                                  f"{lim.max_memory_mb} MB, {lim.max_disk_gb} GB)")
-    wants_gpu = body.wants_gpu and cluster.has_gpus and tpl.gpu_capable
+    wants_gpu = body.wants_gpu and cluster.has_gpus
     if cluster.approval == "required" and not body.justification.strip():
         raise HTTPException(422, "tell the approvers what the VM is for")
 
@@ -209,7 +219,7 @@ async def create_vm(body: VMCreate, user: User = Depends(current_user), core: Co
         if err:
             raise HTTPException(422, err)
         self_service = cluster.approval == "none"
-        vm = VM(cluster_id=cluster.id, name=name, owner_id=user.id, template_id=tpl.id, cores=body.cores,
+        vm = VM(cluster_id=cluster.id, name=name, owner_id=user.id, template_id=tpl.slug, cores=body.cores,
                 memory_mb=body.memory_mb, disk_gb=body.disk_gb, ssh_public_key=key,
                 justification=body.justification.strip(),
                 status="provisioning" if self_service else "pending",
@@ -235,8 +245,8 @@ async def vm_detail(vm_id: int, user: User = Depends(current_user), core: Core =
         vm = get_vm(db, core, user, vm_id)
         out = vm_out(db, core, vm, await live_view(core, vm.cluster_id))
         cluster = core.cfg.cluster(vm.cluster_id)
-        tpl = cluster.template(vm.template_id) if cluster else None
-        out["os"] = tpl.os if tpl else None
+        tpl = image_svc.get(db, vm.cluster_id, vm.template_id)
+        out["image"] = image_svc.out(tpl) if tpl else None
         out["ips"] = []
         if out["power"] == "running":
             try:
@@ -246,6 +256,8 @@ async def vm_detail(vm_id: int, user: User = Depends(current_user), core: Core =
             except ProxmoxError:
                 pass
         out["connections"] = connections(cluster, tpl, vm.name, out["ips"]) if out["power"] == "running" else []
+        out["services"] = [service_out(core, s, out["ips"]) for s in db.scalars(
+            select(Service).where(Service.vm_id == vm.id).order_by(Service.id))]
         out["jobs"] = [job_out(j) for j in db.scalars(
             select(Job).where(Job.vm_id == vm.id).order_by(Job.id.desc()).limit(10))]
         out["reservations"] = [res_out(r) for r in db.scalars(
@@ -257,31 +269,42 @@ async def vm_detail(vm_id: int, user: User = Depends(current_user), core: Core =
         return out
 
 
-def connections(cluster, tpl, name: str, ips: list[str]) -> list[dict]:
-    """How to reach a running VM over the network, per its template's `connect` list."""
-    if not cluster:
-        return []
-    hosts = ([f"{name}.{cluster.connect_domain}"] if cluster.connect_domain else []) + ips
+def vm_hosts(cluster, name: str, ips: list[str]) -> list[str]:
+    return ([f"{name}.{cluster.connect_domain}"] if cluster and cluster.connect_domain else []) + ips
+
+
+def connections(cluster, image: Image | None, name: str, ips: list[str]) -> list[dict]:
+    """How to reach a running VM over the network, per its image's `connect` list."""
+    hosts = vm_hosts(cluster, name, ips)
     if not hosts:
         return []
     host = hosts[0]
-    user = tpl.default_user if tpl else ""
+    user = image.default_user if image else ""
     out = []
-    for kind in (tpl.connections if tpl else ["ssh"]):
+    for kind in image_svc.connect_kinds(image):
         if kind == "ssh":
             out.append({"kind": "ssh", "label": "SSH", "host": host, "port": 22, "user": user,
                         "command": f"ssh {user}@{host}" if user else f"ssh {host}"})
         elif kind == "rdp":
             out.append({"kind": "rdp", "label": "Remote Desktop (RDP)", "host": host, "port": 3389,
-                        # default_user's default is a Linux name; only show one set on purpose
-                        "user": user if tpl and "default_user" in tpl.model_fields_set else "",
-                        "command": f"{host}:3389"})
+                        "user": user, "command": f"{host}:3389"})
         elif kind == "sunshine":
             out.append({"kind": "sunshine", "label": "Moonlight (Sunshine)", "host": host, "port": 47989,
                         "user": "", "command": host, "url": f"https://{host}:47990"})
     for o in out:
         o["hosts"] = hosts
     return out
+
+
+def service_out(core: Core, s: Service, ips: list[str] | None = None) -> dict:
+    vm = s.vm
+    hosts = vm_hosts(core.cfg.cluster(vm.cluster_id), vm.name, ips or [])
+    host = hosts[0] if hosts else None
+    address = f"{host}:{s.port}" if host else None
+    return {"id": s.id, "vm_id": vm.id, "vm_name": vm.name, "cluster_id": vm.cluster_id, "owner": user_out(vm.owner),
+            "name": s.name, "description": s.description, "port": s.port, "protocol": s.protocol,
+            "scheme": s.scheme, "status": s.status, "review_note": s.review_note, "address": address,
+            "url": f"{s.scheme}://{address}" if s.scheme and address else None, "created_at": iso(s.created_at)}
 
 
 class PowerAction(BaseModel):
@@ -363,6 +386,8 @@ async def vm_delete(vm_id: int, user: User = Depends(current_user), core: Core =
         if vm.status in ("pending", "rejected", "archived") or (vm.status == "error" and vm.vmid is None):
             # Nothing exists on the cluster (archives stay in PBS until pruned).
             vm.status = "deleted"
+            for svc in db.scalars(select(Service).where(Service.vm_id == vm.id)):
+                db.delete(svc)
             core.audit(db, user, "delete", f"{vm.cluster_id}/{vm.name}")
             db.commit()
             return {"job_id": None}
@@ -561,7 +586,10 @@ async def approvals(admin: User = Depends(require_admin), core: Core = Depends(g
             (VM.status == "pending") | ((VM.status == "active") & (VM.gpu_access == "requested")))
             .order_by(VM.created_at)))
         lives = {cid: await live_view(core, cid) for cid in {v.cluster_id for v in rows}}
-        return [vm_out(db, core, v, lives[v.cluster_id]) for v in rows]
+        services = db.scalars(select(Service).join(VM).where(Service.status == "pending", VM.status == "active")
+                              .order_by(Service.created_at))
+        return {"vms": [vm_out(db, core, v, lives[v.cluster_id]) for v in rows],
+                "services": [service_out(core, s) for s in services]}
 
 
 @router.post("/admin/vms/{vm_id}/review")
@@ -717,7 +745,11 @@ async def adopt(body: Adopt, admin: User = Depends(require_admin), core: Core = 
         db.add(vm)
         core.audit(db, admin, "adopt-vm", f"{cluster.id}/{vm.name}", f"vmid={body.vmid} owner={owner.username}")
         db.commit()
-        return {"id": vm.id}
+        vm_id = vm.id
+    # An adopted VM comes under the cluster's network policy like any other.
+    await net_svc.apply(core, vm_id)
+    core.invalidate(cluster.id)
+    return {"id": vm_id}
 
 
 @router.get("/admin/users")

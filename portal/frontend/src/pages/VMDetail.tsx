@@ -1,7 +1,8 @@
 import { type ReactNode, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { type Connection, type Job, api, useAct, useClusters, useMe, useVM } from "../api";
+import { type Connection, type Job, type VMDetail as Detail, api, useAct, useClusters, useMe, useVM } from "../api";
 import { Badge, Button, Card, Empty, ErrorNote, Field, Modal, VMStatus, fmtDateTime, fmtGB, fmtSize, fmtUptime, inputCls } from "../ui";
+import { ServiceAddress } from "./Services";
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -46,6 +47,68 @@ function ConnectionRow({ c, name }: { c: Connection; name: string }) {
       {c.kind === "sunshine" && <p className="mt-1 text-xs text-mute">In Moonlight choose “Add host” and enter this address.</p>}
       {c.hosts.length > 1 && <p className="mt-1 text-xs text-mute">Also reachable at {c.hosts.slice(1).join(", ")}</p>}
     </div>
+  );
+}
+
+function ServicesCard({ vm, approval, max }: { vm: Detail; approval: boolean; max: number }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ name: "", port: "", kind: "http", description: "" });
+  const add = useAct(() =>
+    api(`/api/vms/${vm.id}/services`, {
+      method: "POST",
+      body: {
+        name: form.name, description: form.description, port: Number(form.port),
+        protocol: form.kind === "udp" ? "udp" : "tcp", scheme: form.kind === "http" || form.kind === "https" ? form.kind : "",
+      },
+    }).then(() => { setOpen(false); setForm({ name: "", port: "", kind: "http", description: "" }); }));
+  const remove = useAct((id: number) => api(`/api/services/${id}`, { method: "DELETE" }));
+  return (
+    <Card title="Public services" actions={<Button disabled={vm.services.length >= max} onClick={() => { add.reset(); setOpen(true); }}>Publish a port</Button>}>
+      <p className="text-sm text-mute">
+        This VM is isolated: other VMs cannot connect to it, and only you can reach its login port.
+        Publish a port to make a service on it reachable over NetBird.
+      </p>
+      <ErrorNote error={remove.error} />
+      {vm.services.length > 0 && (
+        <ul className="mt-3 text-sm">
+          {vm.services.map((s) => (
+            <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line py-2">
+              <Badge tone={s.status === "published" ? "ok" : s.status === "pending" ? "warn" : "bad"}>{s.status === "pending" ? "awaiting approval" : s.status}</Badge>
+              <span className="font-medium">{s.name}</span>
+              {s.status === "published" ? <ServiceAddress s={s} /> : <span className="text-mute">{s.protocol}/{s.port}</span>}
+              {s.review_note && <span className="text-xs text-mute">“{s.review_note}”</span>}
+              <Button variant="ghost" className="ml-auto" disabled={remove.isPending}
+                onClick={() => confirm(s.status === "published" ? `Stop publishing ${s.name}? Port ${s.port} is closed again.` : `Remove ${s.name}?`) && remove.mutate(s.id)}>
+                {s.status === "published" ? "Unpublish" : "Remove"}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {open && (
+        <Modal title="Publish a port" onClose={() => setOpen(false)}>
+          <Field label="Name"><input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Team wiki" autoFocus /></Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Port"><input type="number" min={1} max={65535} className={inputCls} value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} placeholder="8080" /></Field>
+            <Field label="Type">
+              <select className={inputCls} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
+                <option value="http">Website (http)</option>
+                <option value="https">Website (https)</option>
+                <option value="tcp">Other TCP</option>
+                <option value="udp">UDP</option>
+              </select>
+            </Field>
+          </div>
+          <Field label="Description (optional)"><input className={inputCls} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} maxLength={500} /></Field>
+          <p className="text-xs text-mute">{approval ? "The infrastructure team approves each service before the port is opened." : "The port is opened straight away and listed on the Services page."}</p>
+          <ErrorNote error={add.error} />
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button variant="primary" disabled={!form.name.trim() || !form.port || add.isPending} onClick={() => add.mutate()}>{approval ? "Request" : "Publish"}</Button>
+          </div>
+        </Modal>
+      )}
+    </Card>
   );
 }
 
@@ -115,7 +178,7 @@ export default function VMDetail() {
           <Fact label="VMID">{vm.vmid ?? "—"}</Fact>
           <Fact label="Owner">{vm.owner.name}</Fact>
           <Fact label="Size">{vm.cores} vCPU · {fmtGB(vm.memory_mb)} · {vm.disk_gb} GB</Fact>
-          <Fact label="Image">{cluster?.templates.find((t) => t.id === vm.template_id)?.name ?? (vm.template_id || "—")}</Fact>
+          <Fact label="Image">{vm.image?.name ?? (vm.template_id || "—")}</Fact>
           <Fact label="Uptime">{fmtUptime(vm.uptime)}</Fact>
           <Fact label="IP address">{vm.ips.length ? vm.ips.join(", ") : running ? "waiting for guest agent…" : "—"}</Fact>
         </dl>
@@ -129,13 +192,19 @@ export default function VMDetail() {
             <p className="text-sm text-mute">Start the VM to open its console or connect over the network.</p>
           ) : (
             <div className="space-y-4">
-              <p className="text-sm text-mute">The console is the VM's own screen and keyboard in your browser. It works even before the network is up, so use it to fix a broken SSH or network setup.</p>
+              <p className="text-sm text-mute">
+                {vm.image?.kind === "iso"
+                  ? "This VM booted an installer. Open the console to install the operating system; network details appear once the guest agent is running."
+                  : "The console is the VM's own screen and keyboard in your browser. It works even before the network is up, so use it to fix a broken SSH or network setup."}
+              </p>
               {vm.connections.map((c) => <ConnectionRow key={c.kind} c={c} name={vm.name} />)}
               {!vm.connections.length && <p className="text-sm text-mute">Waiting for the guest agent to report an address for SSH / remote desktop…</p>}
             </div>
           )}
         </Card>
       )}
+
+      {cluster?.network.services && active && <ServicesCard vm={vm} approval={cluster.network.service_approval === "required"} max={cluster.network.max_services_per_vm} />}
 
       {cluster?.has_gpus && vm.status !== "archived" && (
         <Card title="GPU" actions={vm.gpu_access === "approved" && active && <Link to={`/gpus?vm=${vm.id}`} className="rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-brand-ink">Book GPU time</Link>}>

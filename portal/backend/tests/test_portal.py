@@ -56,7 +56,7 @@ def test_research_needs_approval(portal):
     assert not portal.mocks["research"].guests.get(1000)
 
     assert portal.call("alice", "POST", f"/api/admin/vms/{vm['id']}/review", json={"approve": True}).status_code == 403
-    assert [v["id"] for v in portal.call("admin", "GET", "/api/admin/approvals", 200).json()] == [vm["id"]]
+    assert [v["id"] for v in portal.call("admin", "GET", "/api/admin/approvals", 200).json()["vms"]] == [vm["id"]]
 
     # Approve the VM but not the GPU.
     portal.call("admin", "POST", f"/api/admin/vms/{vm['id']}/review", 200, json={"approve": True, "grant_gpu": False})

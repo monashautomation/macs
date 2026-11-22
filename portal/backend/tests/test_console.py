@@ -8,6 +8,7 @@ import pytest
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from app.db import Image
 from conftest import KEY, Portal
 
 H = {"X-MACS": "1"}
@@ -42,7 +43,8 @@ def test_connection_details(lab):
     assert vm["connections"] == [{"kind": "ssh", "label": "SSH", "host": vm["ips"][0], "port": 22, "user": "ubuntu",
                                   "command": f"ssh ubuntu@{vm['ips'][0]}", "hosts": vm["ips"]}]
     portal.cfg.clusters[1].connect_domain = "netbird.selfhosted"
-    portal.cfg.clusters[1].templates[0].connect = ["ssh", "rdp", "sunshine"]
+    with portal.core.Session.begin() as db:
+        db.query(Image).filter_by(cluster_id="homelab").one().connect = ["ssh", "rdp", "sunshine"]
     conns = sam.get(f"/api/vms/{vm['id']}").json()["connections"]
     assert [c["kind"] for c in conns] == ["ssh", "rdp", "sunshine"]
     assert conns[0]["command"] == "ssh ubuntu@lab.netbird.selfhosted"

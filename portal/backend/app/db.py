@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, create_engine
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -59,6 +59,47 @@ class VM(Base):
 
     owner: Mapped[User] = relationship(foreign_keys=[owner_id])
     reviewed_by: Mapped[User | None] = relationship(foreign_keys=[reviewed_by_id])
+
+
+class Image(Base):
+    """An entry in a cluster's image library: a Proxmox template to clone, or
+    an install ISO to boot a blank VM from. VMs refer to it by slug."""
+    __tablename__ = "images"
+    __table_args__ = (UniqueConstraint("cluster_id", "slug"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cluster_id: Mapped[str] = mapped_column(String(64), index=True)
+    slug: Mapped[str] = mapped_column(String(64))
+    kind: Mapped[str] = mapped_column(String(16), default="template")  # template | iso
+    name: Mapped[str] = mapped_column(String(128))
+    description: Mapped[str] = mapped_column(Text, default="")
+    os: Mapped[str] = mapped_column(String(16), default="linux")       # linux | windows | other
+    vmid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    volid: Mapped[str] = mapped_column(Text, default="")
+    default_user: Mapped[str] = mapped_column(String(64), default="")
+    cicustom: Mapped[str] = mapped_column(Text, default="")
+    gpu_ready: Mapped[bool] = mapped_column(Boolean, default=False)
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    connect: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class Service(Base):
+    """A port on a VM that its owner has published beyond the isolation
+    firewall. status: pending -> published | rejected."""
+    __tablename__ = "services"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    vm_id: Mapped[int] = mapped_column(ForeignKey("vms.id"), index=True)
+    name: Mapped[str] = mapped_column(String(64))
+    description: Mapped[str] = mapped_column(Text, default="")
+    port: Mapped[int] = mapped_column(Integer)
+    protocol: Mapped[str] = mapped_column(String(8), default="tcp")    # tcp | udp
+    scheme: Mapped[str] = mapped_column(String(8), default="")         # http | https | "" (for a clickable link)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    review_note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    vm: Mapped[VM] = relationship()
 
 
 class Reservation(Base):
