@@ -1,0 +1,81 @@
+# MACS portal configuration. Copy to config.yaml.
+# ${VAR} is replaced from the environment (put secrets in .env, not here).
+
+app:
+  name: MACS
+  base_url: https://macs.example.edu        # public URL; used for the OIDC redirect
+  secret_key: ${MACS_SECRET_KEY}            # openssl rand -hex 32
+  database_url: sqlite:////data/macs.db     # or postgresql+psycopg://user:pass@host/macs
+  timezone: Australia/Melbourne
+
+auth:
+  mode: oidc
+  # Authentik > Applications > Providers > (OAuth2/OpenID provider) > "OpenID Configuration Issuer"
+  issuer: https://auth.example.edu/application/o/macs/
+  client_id: ${AUTHENTIK_CLIENT_ID}
+  client_secret: ${AUTHENTIK_CLIENT_SECRET}
+  # Members of these Authentik groups approve requests, swap GPUs and see everything.
+  admin_groups: [automation-admins]
+
+clusters:
+  # --- Research: Ceph + GPUs, every request approved by an admin -------------
+  - id: research
+    name: Research cluster
+    kind: research
+    description: 5 nodes on Ceph with RTX 4090s.
+    endpoint: https://pve1.example.edu:8006
+    token_id: macs@pve!portal
+    token_secret: ${RESEARCH_PVE_TOKEN}
+    verify_tls: true
+    allowed_groups: [automation-members]    # Authentik groups allowed to request VMs here
+    approval: required
+    storage: ceph-vm                        # where VM disks are created
+    shared_storage: true                    # lets the portal spread VMs and migrate them to a free GPU
+    bridge: vmbr1
+    # vlan: 20
+    vmid_range: [1000, 1999]                # the portal only allocates IDs in this range
+    backup_storage: pbs                     # Proxmox storage id of the PBS datastore
+    limits: { max_cores: 32, max_memory_mb: 131072, max_disk_gb: 500 }   # per VM
+    templates:
+      - id: golden-jam
+        name: Ubuntu desktop (golden-jam)
+        vmid: 9000
+        default_user: baker
+        description: Ubuntu with NVIDIA drivers, Sunshine, CUDA and ROS 2 baked in.
+        # Optional vendor-data snippet (e.g. NetBird enrolment); merged with the
+        # user + SSH key the portal sets. Must be on storage every node can read.
+        # cicustom: vendor=cephfs:snippets/macs-vendor.yaml
+      - { id: win11, name: Windows 11, vmid: 9001, os: windows }
+    gpu:
+      # Datacenter > Resource Mappings > PCI devices: one mapping containing the
+      # 4090 on every node. Without a mapping, set `pci:` per device and use
+      # username/password (root@pam) instead of a token - Proxmox only lets root
+      # attach raw PCI ids.
+      mapping: rtx4090
+      hostpci_opts: pcie=1
+      max_reservation_hours: 72
+      max_advance_days: 30
+      devices:
+        - { id: gpu-1, node: pve1, model: RTX 4090 }
+        - { id: gpu-2, node: pve2, model: RTX 4090 }
+        - { id: gpu-3, node: pve3, model: RTX 4090 }
+        - { id: gpu-4, node: pve4, model: RTX 4090 }
+        - { id: gpu-5, node: pve5, model: RTX 4090 }
+
+  # --- Homelab: self-service within a per-student quota ----------------------
+  - id: homelab
+    name: Homelab
+    kind: homelab
+    description: Self-service VMs for learning and tinkering.
+    endpoint: https://homelab-pve.example.edu:8006
+    token_id: macs@pve!portal
+    token_secret: ${HOMELAB_PVE_TOKEN}
+    allowed_groups: []                      # empty = anyone who can sign in
+    approval: none
+    storage: local-lvm
+    bridge: vmbr1
+    vmid_range: [1000, 1999]
+    limits: { max_cores: 4, max_memory_mb: 8192, max_disk_gb: 80 }
+    quota: { max_vms: 3, max_cores: 8, max_memory_mb: 16384, max_disk_gb: 160 }  # per user, 0 = unlimited
+    templates:
+      - { id: ubuntu, name: Ubuntu 24.04 server, vmid: 9000, default_user: ubuntu, gpu_capable: false }

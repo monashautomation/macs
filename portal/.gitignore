@@ -1,0 +1,13 @@
+# Real config holds cluster endpoints; keep it out of git (see config.example.yaml)
+/config.yaml
+.env
+
+backend/.venv/
+backend/*.egg-info/
+__pycache__/
+.pytest_cache/
+*.db
+mock-*.json
+
+frontend/node_modules/
+frontend/dist/

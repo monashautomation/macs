@@ -1,0 +1,57 @@
+# Local development: fake sign-in and in-memory "Proxmox" clusters.
+# Run with:  MACS_CONFIG=config.dev.yaml  (see README)
+app:
+  name: MACS
+  base_url: http://localhost:8000
+  secret_key: dev-only-not-a-secret
+  database_url: sqlite:///./macs-dev.db
+  scheduler_interval_seconds: 5
+
+auth:
+  mode: dev
+  admin_groups: [automation-admins]
+  dev_users:
+    - { username: admin, name: Ada Admin, groups: [automation-admins, automation-members] }
+    - { username: alice, name: Alice Researcher, groups: [automation-members] }
+    - { username: bob, name: Bob Researcher, groups: [automation-members] }
+    - { username: sam, name: Sam Student, groups: [students] }
+
+clusters:
+  - id: research
+    name: Research cluster
+    kind: research
+    description: 5 nodes on Ceph with RTX 4090s. Requests are reviewed by an admin.
+    driver: mock
+    mock_state_file: ./mock-research.json
+    allowed_groups: [automation-members]
+    approval: required
+    storage: ceph-vm
+    shared_storage: true
+    backup_storage: pbs
+    limits: { max_cores: 32, max_memory_mb: 131072, max_disk_gb: 500 }
+    templates:
+      - { id: golden-jam, name: Ubuntu desktop (golden-jam), vmid: 9000, default_user: baker,
+          description: "Ubuntu with NVIDIA drivers, Sunshine, CUDA and ROS 2 baked in." }
+      - { id: win11, name: Windows 11, vmid: 9001, os: windows }
+    gpu:
+      mapping: rtx4090
+      devices:
+        - { id: gpu-1, node: pve1, model: RTX 4090 }
+        - { id: gpu-2, node: pve2, model: RTX 4090 }
+        - { id: gpu-3, node: pve3, model: RTX 4090 }
+        - { id: gpu-4, node: pve4, model: RTX 4090 }
+        - { id: gpu-5, node: pve5, model: RTX 4090 }
+
+  - id: homelab
+    name: Homelab
+    kind: homelab
+    description: Self-service VMs for learning and tinkering.
+    driver: mock
+    mock_state_file: ./mock-homelab.json
+    approval: none
+    storage: local-lvm
+    limits: { max_cores: 4, max_memory_mb: 8192, max_disk_gb: 80 }
+    quota: { max_vms: 3, max_cores: 8, max_memory_mb: 16384, max_disk_gb: 160 }
+    templates:
+      - { id: ubuntu, name: Ubuntu 24.04 server, vmid: 9000, default_user: ubuntu, gpu_capable: false }
+      - { id: debian, name: Debian 12, vmid: 9001, default_user: debian, gpu_capable: false }

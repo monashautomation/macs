@@ -1,0 +1,24 @@
+[project]
+name = "macs-portal"
+version = "0.1.0"
+description = "Self-service Proxmox VM + GPU scheduling portal for Monash Automation"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "sqlalchemy>=2.0",
+  "httpx>=0.27",
+  "authlib>=1.3",
+  "itsdangerous>=2.1",
+  "pyyaml>=6",
+  "psycopg[binary]>=3.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

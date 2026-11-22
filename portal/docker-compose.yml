@@ -1,0 +1,14 @@
+# cp config.example.yaml config.yaml, fill in .env, then: docker compose up -d --build
+services:
+  portal:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file: .env
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      - macs-data:/data # SQLite database lives here (database_url: sqlite:////data/macs.db)
+
+volumes:
+  macs-data:
