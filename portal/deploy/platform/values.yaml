@@ -1,0 +1,86 @@
+# bjw-s app-template values. CI bumps image.tag (tag@digest) via PR.
+defaultPodOptions:
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    runAsGroup: 1001
+    fsGroup: 1001
+    seccompProfile: { type: RuntimeDefault }
+controllers:
+  main:
+    # One replica, replaced rather than rolled: the GPU scheduler, running jobs
+    # and open console sessions live in this process's memory.
+    replicas: 1
+    strategy: Recreate
+    revisionHistoryLimit: 3
+    initContainers:
+      migrate:
+        image: &image
+          repository: ghcr.io/monashautomation/macs
+          tag: sha-0000000@sha256:0000 # set by CI
+        command:
+          [
+            "node",
+            "migrator/node_modules/prisma/build/index.js",
+            "migrate",
+            "deploy",
+            "--schema",
+            "prisma/schema.prisma",
+          ]
+        envFrom: &env
+          - secretRef: { name: macs-secrets }
+        securityContext: &sc
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: { drop: [ALL] }
+    containers:
+      main:
+        image: *image
+        envFrom: *env
+        env:
+          APP_NAME: MACS
+          APP_URL: https://macs.monashautomation.com
+          AUTHENTIK_ISSUER: https://auth.monashautomation.com/application/o/macs/
+          ADMIN_GROUPS: automation-infra # Systems & Infra: the Infrastructure workspace
+          MEMBER_GROUPS: ""
+          MACS_CONFIG: /config/config.yaml
+          CONSOLE_WS_URL: wss://macs.monashautomation.com/console-ws
+        securityContext: *sc
+        resources:
+          requests: { cpu: 50m, memory: 192Mi }
+          limits: { memory: 768Mi }
+        probes:
+          liveness: { enabled: true, custom: true, spec: { httpGet: { path: /api/healthz, port: 3000 } } }
+          readiness: { enabled: true, custom: true, spec: { httpGet: { path: /api/readyz, port: 3000 } } }
+          startup:
+            {
+              enabled: true,
+              custom: true,
+              spec: { httpGet: { path: /api/healthz, port: 3000 }, failureThreshold: 30, periodSeconds: 2 },
+            }
+service:
+  main:
+    controller: main
+    ports:
+      http: { port: 3000 }
+      console: { port: 3001 } # websocket relay for VM consoles
+ingress:
+  main:
+    className: traefik
+    hosts:
+      - host: macs.monashautomation.com
+        paths:
+          - { path: /console-ws, service: { identifier: main, port: console } }
+          - { path: /, service: { identifier: main, port: http } }
+# Cluster definitions (no secrets: tokens are ${ENV} references resolved from macs-secrets).
+# Start from portal/config.example.yaml.
+configMaps:
+  config:
+    data:
+      config.yaml: |
+        clusters: []
+persistence:
+  config: { type: configMap, identifier: config, globalMounts: [{ path: /config, readOnly: true }] }
+  tmp: { type: emptyDir, globalMounts: [{ path: /tmp }] }
+  nextcache: { type: emptyDir, globalMounts: [{ path: /app/.next/cache }] }

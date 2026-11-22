@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: macs
+  namespace: argocd
+spec:
+  description: macs service
+  sourceRepos:
+    - https://github.com/monashautomation/central-platform-argocd.git
+    - https://github.com/monashautomation/macs.git
+    - https://bjw-s-labs.github.io/helm-charts
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: macs
+  # Apps may create only namespaced resources, plus their own Namespace.
+  clusterResourceWhitelist:
+    - { group: "", kind: Namespace }
+  namespaceResourceBlacklist:
+    - { group: "", kind: ResourceQuota }
+    - { group: "", kind: LimitRange }

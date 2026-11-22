@@ -1,0 +1,262 @@
+// Database schema. Auth tables (User, Session, Account, Verification) are what
+// better-auth needs; add your own models below them.
+//
+// Identity rule (security audit X1): a person is their Authentik account
+// (Account.accountId = Authentik `sub`). Email is display data, never a join key.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  name          String
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sessions     Session[]
+  accounts     Account[]
+  profile      Profile?
+  vms          Vm[]          @relation("VmOwner")
+  reviewed     Vm[]          @relation("VmReviewer")
+  reservations Reservation[]
+  jobs         Job[]
+  audits       Audit[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  providerId            String
+  accountId             String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+/// Authentik groups per Authentik account (`sub`), refreshed on every sign-in.
+/// Kept outside better-auth's user fields so no API can let a user edit them.
+/// Roles are derived from these on every request (see src/lib/authz.ts).
+model IdentityGroups {
+  sub       String   @id
+  groups    String[] @default([])
+  updatedAt DateTime @updatedAt
+
+  @@map("identity_groups")
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verifications")
+}
+
+// ---- MACS domain models -----------------------------------------------------
+// Ownership rule: every row a member creates records its owner, and every query
+// for members filters on it.
+
+/// Per-user settings the app keeps (kept off better-auth's user table).
+model Profile {
+  userId       String @id
+  user         User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sshPublicKey String @default("")
+
+  @@map("profiles")
+}
+
+/// A virtual machine request and, once provisioned, the VM itself.
+/// status: pending -> (rejected | provisioning) -> active -> (archived | deleted); error on failed provisioning.
+/// gpuAccess: none -> requested -> approved.
+model Vm {
+  id            String   @id @default(cuid())
+  clusterId     String
+  /// Proxmox VMID; null until provisioned.
+  vmid          Int?
+  name          String
+  ownerId       String
+  owner         User     @relation("VmOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  /// Slug of the library image it was deployed from.
+  imageSlug     String   @default("")
+  cores         Int
+  memoryMb      Int
+  diskGb        Int
+  sshPublicKey  String   @default("")
+  status        String   @default("pending")
+  gpuAccess     String   @default("none")
+  justification String   @default("")
+  reviewNote    String   @default("")
+  reviewedById  String?
+  reviewedBy    User?    @relation("VmReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  error         String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  reservations Reservation[]
+  services     Service[]
+  backups      Backup[]
+  jobs         Job[]
+
+  @@index([ownerId])
+  @@index([clusterId, status])
+  @@map("vms")
+}
+
+/// An entry in a cluster's image library: a Proxmox template to clone, or an
+/// install ISO to boot a blank VM from. VMs refer to it by slug.
+model Image {
+  id          String   @id @default(cuid())
+  clusterId   String
+  slug        String
+  /// template | iso
+  kind        String   @default("template")
+  name        String
+  description String   @default("")
+  /// linux | windows | other
+  os          String   @default("linux")
+  vmid        Int?
+  volid       String   @default("")
+  defaultUser String   @default("")
+  cicustom    String   @default("")
+  gpuReady    Boolean  @default(false)
+  tags        String[] @default([])
+  /// ssh | rdp | sunshine. Empty = ssh for linux, rdp for windows.
+  connect     String[] @default([])
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@unique([clusterId, slug])
+  @@map("images")
+}
+
+/// A port on a VM its owner has published beyond the isolation firewall.
+/// status: pending -> published | rejected.
+model Service {
+  id          String   @id @default(cuid())
+  vmId        String
+  vm          Vm       @relation(fields: [vmId], references: [id], onDelete: Cascade)
+  name        String
+  description String   @default("")
+  port        Int
+  /// tcp | udp
+  protocol    String   @default("tcp")
+  /// http | https | "" (gives a clickable link)
+  scheme      String   @default("")
+  status      String   @default("pending")
+  reviewNote  String   @default("")
+  createdAt   DateTime @default(now())
+
+  @@index([vmId])
+  @@map("services")
+}
+
+/// A booking of one GPU from a cluster's pool for a VM.
+/// status: scheduled -> active -> completed; or cancelled / failed.
+model Reservation {
+  id        String   @id @default(cuid())
+  clusterId String
+  vmId      String
+  vm        Vm       @relation(fields: [vmId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  startAt   DateTime
+  endAt     DateTime
+  status    String   @default("scheduled")
+  gpuId     String   @default("")
+  note      String   @default("")
+  error     String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([clusterId, status])
+  @@index([vmId])
+  @@map("reservations")
+}
+
+/// Backups the portal took, so a recycled VMID can never expose another VM's data.
+model Backup {
+  id        String   @id @default(cuid())
+  vmId      String
+  vm        Vm       @relation(fields: [vmId], references: [id], onDelete: Cascade)
+  volid     String
+  notes     String   @default("")
+  sizeBytes BigInt   @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([vmId])
+  @@map("backups")
+}
+
+/// A long-running Proxmox operation. status: running -> succeeded | failed.
+/// The migration adds a partial unique index: one running job per VM.
+model Job {
+  id         String    @id @default(cuid())
+  kind       String
+  status     String    @default("running")
+  vmId       String?
+  vm         Vm?       @relation(fields: [vmId], references: [id], onDelete: SetNull)
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  log        String    @default("")
+  error      String    @default("")
+  createdAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@index([vmId])
+  @@index([status])
+  @@map("jobs")
+}
+
+model Audit {
+  id     String   @id @default(cuid())
+  at     DateTime @default(now())
+  userId String?
+  user   User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action String
+  target String   @default("")
+  detail String   @default("")
+
+  @@index([at])
+  @@map("audit")
+}

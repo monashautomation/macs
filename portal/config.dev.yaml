@@ -1,28 +1,10 @@
-# Local development: fake sign-in and in-memory "Proxmox" clusters.
-# Run with:  MACS_CONFIG=config.dev.yaml  (see README)
-app:
-  name: MACS
-  base_url: http://localhost:8000
-  secret_key: dev-only-not-a-secret
-  database_url: sqlite:///./macs-dev.db
-  scheduler_interval_seconds: 5
-
-auth:
-  mode: dev
-  admin_groups: [automation-admins]
-  dev_users:
-    - { username: admin, name: Ada Admin, groups: [automation-admins, automation-members] }
-    - { username: alice, name: Alice Researcher, groups: [automation-members] }
-    - { username: bob, name: Bob Researcher, groups: [automation-members] }
-    - { username: sam, name: Sam Student, groups: [students] }
-
+# Local development: in-memory "Proxmox" clusters (driver: mock). See README.
 clusters:
   - id: research
     name: Research cluster
     kind: research
-    description: 5 nodes on Ceph with RTX 4090s. Requests are reviewed by an admin.
+    description: 5 nodes on Ceph with RTX 4090s. Requests are reviewed by Systems & Infra.
     driver: mock
-    mock_state_file: ./mock-research.json
     allowed_groups: [automation-members]
     approval: required
     storage: ceph-vm
@@ -35,13 +17,30 @@ clusters:
       description: VMs sit directly on the labs LAN and can reach lab equipment and each other.
     limits: { max_cores: 32, max_memory_mb: 131072, max_disk_gb: 500 }
     templates:
-      - { id: golden-jam, name: Ubuntu desktop (golden-jam), vmid: 9000, default_user: baker,
-          description: "Ubuntu 22.04 desktop with NVIDIA drivers, CUDA, PyTorch, ROS 2 and Sunshine streaming baked in.",
-          gpu_ready: true, tags: [desktop, cuda, ros2], connect: [ssh, sunshine] }
-      - { id: win11, name: Windows 11, vmid: 9001, os: windows, gpu_ready: true, tags: [desktop],
-          description: "Windows 11 with NVIDIA drivers, Sunshine and RDP enabled.", connect: [rdp, sunshine] }
-      - { id: ubuntu-server, name: Ubuntu 24.04 server, vmid: 9002, default_user: ubuntu, tags: [minimal],
-          description: "Plain cloud image for CPU-only services." }
+      - id: golden-jam
+        name: Ubuntu desktop (golden-jam)
+        vmid: 9000
+        default_user: baker
+        description: Ubuntu 22.04 desktop with NVIDIA drivers, CUDA, PyTorch, ROS 2 and Sunshine streaming baked in.
+        gpu_ready: true
+        tags: [desktop, cuda, ros2]
+        connect: [ssh, sunshine]
+      - id: win11
+        name: Windows 11
+        vmid: 9001
+        os: windows
+        description: Windows 11 with NVIDIA drivers, Sunshine and RDP enabled.
+        gpu_ready: true
+        tags: [desktop]
+        connect: [rdp, sunshine]
+      - {
+          id: ubuntu-server,
+          name: Ubuntu 24.04 server,
+          vmid: 9002,
+          default_user: ubuntu,
+          tags: [minimal],
+          description: Plain cloud image for CPU-only services.,
+        }
     gpu:
       mapping: rtx4090
       devices:
@@ -56,7 +55,6 @@ clusters:
     kind: homelab
     description: Self-service VMs for learning and tinkering.
     driver: mock
-    mock_state_file: ./mock-homelab.json
     approval: none
     storage: local-lvm
     connect_domain: netbird.selfhosted
@@ -66,14 +64,26 @@ clusters:
       description: VMs are isolated from each other. Reach yours over NetBird, and publish ports to share a service.
       isolate: true
       access_ports: [22]
-      access_sources: [100.64.0.0/10]     # NetBird range
+      access_sources: [100.64.0.0/10] # NetBird range
       services: true
       public_sources: [100.64.0.0/10]
     limits: { max_cores: 4, max_memory_mb: 8192, max_disk_gb: 80 }
     quota: { max_vms: 3, max_cores: 8, max_memory_mb: 16384, max_disk_gb: 160 }
     templates:
-      - { id: ubuntu, name: Ubuntu 24.04 server, vmid: 9000, default_user: ubuntu, tags: [minimal],
-          description: "Cloud image: boots in seconds with your SSH key." }
+      - {
+          id: ubuntu,
+          name: Ubuntu 24.04 server,
+          vmid: 9000,
+          default_user: ubuntu,
+          tags: [minimal],
+          description: "Cloud image: boots in seconds with your SSH key.",
+        }
       - { id: debian, name: Debian 12, vmid: 9001, default_user: debian, tags: [minimal] }
-      - { id: nixos-iso, name: NixOS 24.11 installer, kind: iso, os: other,
-          volid: "local:iso/nixos-minimal-24.11-x86_64-linux.iso", description: "Install NixOS yourself from the console." }
+      - {
+          id: nixos-iso,
+          name: NixOS 24.11 installer,
+          kind: iso,
+          os: other,
+          volid: "local:iso/nixos-minimal-24.11-x86_64-linux.iso",
+          description: Install NixOS yourself from the console.,
+        }

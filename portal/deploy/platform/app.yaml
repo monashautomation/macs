@@ -1,0 +1,21 @@
+# Copy deploy/platform/* to central-platform-argocd/apps/<name>/ and replace
+# "macs" (app name, namespace, repo). See that repo's deploy-service skill.
+name: macs
+namespace: macs
+tier: app
+owner: CHANGE-ME
+sources:
+  - repoURL: https://bjw-s-labs.github.io/helm-charts
+    chart: app-template
+    targetRevision: 4.6.2
+    helm:
+      releaseName: macs
+      valueFiles:
+        - $values/apps/macs/values.yaml
+  - repoURL: https://github.com/monashautomation/central-platform-argocd.git
+    targetRevision: main
+    ref: values
+  # ExternalSecret + database for this app, from this repo at a pinned tag/commit.
+  - repoURL: https://github.com/monashautomation/macs.git
+    targetRevision: v0.1.0
+    path: portal/deploy/extra

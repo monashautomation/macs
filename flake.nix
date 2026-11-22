@@ -19,8 +19,8 @@
             pkgs.packer
             pkgs.jq
             pkgs.curl
-            pkgs.python312
             pkgs.nodejs_22
+            pkgs.pnpm
           ];
         shellHook = ''
           export PATH="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/scripts:$PATH"

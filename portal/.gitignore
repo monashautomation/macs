@@ -1,13 +1,14 @@
-# Real config holds cluster endpoints; keep it out of git (see config.example.yaml)
-/config.yaml
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
 .env
+.env.*
+!.env.example
+.DS_Store
 
-backend/.venv/
-backend/*.egg-info/
-__pycache__/
-.pytest_cache/
-*.db
-mock-*.json
-
-frontend/node_modules/
-frontend/dist/
+# Real cluster config (endpoints, group names) and the dev mock's state
+/config.yaml
+.mock-state-*.json

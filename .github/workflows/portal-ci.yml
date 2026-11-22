@@ -1,0 +1,60 @@
+name: portal-ci
+
+on:
+  push:
+    branches: [main]
+    paths: ["portal/**", ".github/workflows/portal-ci.yml"]
+  pull_request:
+    paths: ["portal/**", ".github/workflows/portal-ci.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: portal
+    # The engine tests run against a real Postgres.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: dev
+          POSTGRES_DB: macs_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:dev@localhost:5432/macs_test
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@v4
+        with: { package_json_file: portal/package.json }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm, cache-dependency-path: portal/pnpm-lock.yaml }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  # Build, scan, sign and push the image, then open the deploy PR in
+  # central-platform-argocd. Only after checks pass.
+  #
+  # TODO(Systems & Infra): the app lives in portal/, not the repo root. Confirm
+  # the reusable workflow can take a build context / Dockerfile path before
+  # enabling this job on main.
+  image:
+    needs: check
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    uses: monashautomation/central-platform-argocd/.github/workflows/build-image.yml@7e197e34c7725ae802d50609941dd0f4d5c1e57b
+    with:
+      app: macs
+    secrets: inherit

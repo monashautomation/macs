@@ -1,21 +1,9 @@
-# MACS portal configuration. Copy to config.yaml.
-# ${VAR} is replaced from the environment (put secrets in .env, not here).
-
-app:
-  name: MACS
-  base_url: https://macs.example.edu        # public URL; used for the OIDC redirect
-  secret_key: ${MACS_SECRET_KEY}            # openssl rand -hex 32
-  database_url: sqlite:////data/macs.db     # or postgresql+psycopg://user:pass@host/macs
-  timezone: Australia/Melbourne
-
-auth:
-  mode: oidc
-  # Authentik > Applications > Providers > (OAuth2/OpenID provider) > "OpenID Configuration Issuer"
-  issuer: https://auth.example.edu/application/o/macs/
-  client_id: ${AUTHENTIK_CLIENT_ID}
-  client_secret: ${AUTHENTIK_CLIENT_SECRET}
-  # Members of these Authentik groups approve requests, swap GPUs and see everything.
-  admin_groups: [automation-admins]
+# MACS cluster configuration. Copy to config.yaml and point MACS_CONFIG at it
+# (in production it is mounted from a ConfigMap; see deploy/).
+#
+# ${VAR} is replaced from the environment, so Proxmox token secrets stay in
+# OpenBao / .env and never in this file. Sign-in and the infrastructure team's
+# group are environment settings (AUTHENTIK_*, ADMIN_GROUPS), not set here.
 
 clusters:
   # --- Research: Ceph + GPUs, every request approved by an admin -------------
@@ -27,32 +15,32 @@ clusters:
     token_id: macs@pve!portal
     token_secret: ${RESEARCH_PVE_TOKEN}
     verify_tls: true
-    allowed_groups: [automation-members]    # Authentik groups allowed to request VMs here
+    allowed_groups: [automation-members] # Authentik groups allowed to request VMs here (empty = every member)
     approval: required
-    storage: ceph-vm                        # where VM disks are created
-    shared_storage: true                    # lets the portal spread VMs and migrate them to a free GPU
+    storage: ceph-vm # where VM disks are created
+    shared_storage: true # lets the portal spread VMs and migrate them to a free GPU
     bridge: vmbr1
     # vlan: 20
-    vmid_range: [1000, 1999]                # the portal only allocates IDs in this range
+    vmid_range: [1000, 1999] # the portal only allocates IDs in this range
     # VMs join NetBird under their name, so show <name>.<domain> in connection details.
     # connect_domain: netbird.selfhosted
     backup_storage: pbs
-    iso_storage: cephfs                     # ISOs here can be added to the image library
+    iso_storage: cephfs # ISOs here can be added to the image library
     network:
       label: Labs network
       description: VMs sit directly on the labs LAN and can reach lab equipment.
       # isolate defaults to false: the portal does not firewall research VMs.                     # Proxmox storage id of the PBS datastore
-    limits: { max_cores: 32, max_memory_mb: 131072, max_disk_gb: 500 }   # per VM
+    limits: { max_cores: 32, max_memory_mb: 131072, max_disk_gb: 500 } # per VM
     # `templates` only seeds the image library the first time the portal starts.
-    # After that the infrastructure team manages it under Infrastructure > Image library.
+    # After that Systems & Infra manage it in the app under Infrastructure > Image library.
     templates:
       - id: golden-jam
         name: Ubuntu desktop (golden-jam)
         vmid: 9000
         default_user: baker
         description: Ubuntu with NVIDIA drivers, Sunshine, CUDA and ROS 2 baked in.
-        connect: [ssh, sunshine]            # what the VM page offers besides the console
-        gpu_ready: true                     # NVIDIA drivers baked in: works with the 4090s as-is
+        connect: [ssh, sunshine] # what the VM page offers besides the console
+        gpu_ready: true # NVIDIA drivers baked in: works with the 4090s as-is
         tags: [desktop, cuda, ros2]
         # Optional vendor-data snippet (e.g. NetBird enrolment); merged with the
         # user + SSH key the portal sets. Must be on storage every node can read.
@@ -82,13 +70,13 @@ clusters:
     endpoint: https://homelab-pve.example.edu:8006
     token_id: macs@pve!portal
     token_secret: ${HOMELAB_PVE_TOKEN}
-    allowed_groups: []                      # empty = anyone who can sign in
+    allowed_groups: [] # empty = everyone allowed into the app (MEMBER_GROUPS)
     approval: none
     storage: local-lvm
     bridge: vmbr1
     vmid_range: [1000, 1999]
     limits: { max_cores: 4, max_memory_mb: 8192, max_disk_gb: 80 }
-    quota: { max_vms: 3, max_cores: 8, max_memory_mb: 16384, max_disk_gb: 160 }  # per user, 0 = unlimited
+    quota: { max_vms: 3, max_cores: 8, max_memory_mb: 16384, max_disk_gb: 160 } # per user, 0 = unlimited
     iso_storage: local
     network:
       label: Homelab network
@@ -102,7 +90,7 @@ clusters:
       # Users may publish further ports as "public services", reachable from:
       services: true
       public_sources: [100.64.0.0/10]
-      service_approval: none                # or `required` to have the infra team approve each one
+      service_approval: none # or `required` to have the infra team approve each one
       max_services_per_vm: 5
     templates:
       - { id: ubuntu, name: Ubuntu 24.04 server, vmid: 9000, default_user: ubuntu }
