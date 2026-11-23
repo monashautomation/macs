@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { SectionCard } from "@/components/section-card";
 import { Button } from "@/components/ui/button";
 import { useClusters } from "@/lib/client";
-import { ImageBadges, Panel } from "./common";
+import { ImageBadges } from "./common";
 
 type Filter = "all" | "gpu" | "template" | "iso";
 
@@ -49,7 +50,7 @@ export function Images() {
       {rows.length ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {rows.map(({ image, cluster }) => (
-            <Panel key={`${cluster.id}/${image.id}`} title={image.name} className="h-full">
+            <SectionCard key={`${cluster.id}/${image.id}`} title={image.name} className="h-full">
               <div className="flex h-full flex-col">
                 <p className="-mt-3 text-xs text-muted-foreground">{cluster.name}</p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
@@ -70,7 +71,7 @@ export function Images() {
                   </Link>
                 </Button>
               </div>
-            </Panel>
+            </SectionCard>
           ))}
         </div>
       ) : (

@@ -1,13 +1,13 @@
 "use client";
 
 import { Cpu, Disc3, Globe, Server, Wrench } from "lucide-react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { AppShell } from "@/components/app-shell";
 import { SignOutButton } from "@/components/auth-buttons";
+import { SectionNav } from "@/components/section-nav";
+import { Badge } from "@/components/ui/badge";
 import { pendingCount, useApprovals } from "@/lib/client";
-import { cn } from "@/lib/utils";
 
 export interface FrameProps {
   appName: string;
@@ -80,7 +80,7 @@ export function Frame({
     ...(isAdmin
       ? [
           {
-            label: waiting ? `Infrastructure (${waiting})` : "Infrastructure",
+            label: "Infra",
             href: "/infra",
             icon: <Wrench className="size-4" aria-hidden />,
             active: inInfra,
@@ -101,32 +101,19 @@ export function Frame({
       }
     >
       {inInfra ? (
-        <nav
-          aria-label="Infrastructure"
-          className="-mt-2 mb-6 flex gap-1 overflow-x-auto border-b border-border pb-px"
-        >
-          {INFRA.map(([href, label]) => {
-            const active = href === "/infra" ? path === "/infra" : path.startsWith(href);
-            return (
-              <Link
-                key={href}
-                href={href}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "inline-flex h-11 items-center gap-1.5 border-b-2 px-3 text-sm whitespace-nowrap text-muted-foreground no-underline hover:text-foreground",
-                  active ? "border-primary font-semibold text-foreground" : "border-transparent",
-                )}
-              >
-                {label}
-                {href === "/infra/approvals" && waiting > 0 ? (
-                  <span className="rounded-full bg-warning-bg px-1.5 text-xs font-semibold text-warning">
-                    {waiting}
-                  </span>
-                ) : null}
-              </Link>
-            );
-          })}
-        </nav>
+        <SectionNav
+          label="Infrastructure"
+          className="-mt-2"
+          items={INFRA.map(([href, label]) => ({
+            href,
+            label,
+            active: href === "/infra" ? path === "/infra" : path.startsWith(href),
+            badge:
+              href === "/infra/approvals" && waiting > 0 ? (
+                <Badge variant="warning">{waiting}</Badge>
+              ) : undefined,
+          }))}
+        />
       ) : null}
       {children}
     </AppShell>

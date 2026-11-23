@@ -5,12 +5,13 @@ import Link from "next/link";
 import { useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { SectionCard } from "@/components/section-card";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, useAct, useApprovals, useClusters } from "@/lib/client";
-import { fmtDateTime, fmtGB, Panel } from "../common";
+import { fmtDateTime, fmtGB } from "../common";
 
 export function InfraApprovals() {
   const q = useApprovals();
@@ -25,7 +26,7 @@ export function InfraApprovals() {
   const cname = (id: string) => clusters.data?.find((c) => c.id === id)?.name ?? id;
   const note = (id: string) => (
     <Input
-      className="min-w-40 flex-1"
+      className="w-full sm:w-auto sm:min-w-40 sm:flex-1"
       aria-label="Note to the requester"
       placeholder="Note to the requester (optional)"
       value={notes[id] ?? ""}
@@ -52,7 +53,7 @@ export function InfraApprovals() {
           const gpuOnly = vm.status === "active";
           const wantsGpu = vm.gpuAccess === "requested";
           return (
-            <Panel
+            <SectionCard
               key={vm.id}
               title={
                 <>
@@ -98,11 +99,11 @@ export function InfraApprovals() {
                   {gpuOnly ? "Grant GPU access" : wantsGpu ? "Approve with GPU" : "Approve"}
                 </Button>
               </div>
-            </Panel>
+            </SectionCard>
           );
         })}
         {q.data?.services.map((s) => (
-          <Panel
+          <SectionCard
             key={s.id}
             title={
               <>
@@ -141,7 +142,7 @@ export function InfraApprovals() {
                 Open the port
               </Button>
             </div>
-          </Panel>
+          </SectionCard>
         ))}
       </div>
     </>

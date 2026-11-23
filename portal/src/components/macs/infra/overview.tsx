@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { Meter } from "@/components/meter";
 import { PageHeader } from "@/components/page-header";
+import { SectionCard } from "@/components/section-card";
 import { Badge } from "@/components/ui/badge";
 import { type Overview, useOverview } from "@/lib/client";
 import { cn } from "@/lib/utils";
-import { Meter, Note, Panel } from "../common";
+import { Note } from "../common";
 
 function Stat({
   label,
@@ -31,7 +33,7 @@ function Stat({
 function ClusterPanel({ c }: { c: Overview }) {
   const waiting = c.pending.vms + c.pending.gpu + c.pending.services;
   return (
-    <Panel
+    <SectionCard
       title={
         <>
           {c.name}
@@ -86,44 +88,39 @@ function ClusterPanel({ c }: { c: Overview }) {
           <Stat label="Images" value={c.images} sub={`${c.vms.archived} VMs archived`} />
         </dl>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <div className="mb-1 flex justify-between text-xs text-muted-foreground">
-              <span>vCPUs allocated</span>
-              <span className="tabular-nums">
-                {c.allocated.cores} / {c.capacity.cores}
-              </span>
-            </div>
-            <Meter value={c.allocated.cores} max={c.capacity.cores} />
-          </div>
-          <div>
-            <div className="mb-1 flex justify-between text-xs text-muted-foreground">
-              <span>Memory allocated</span>
-              <span className="tabular-nums">
-                {Math.round(c.allocated.memoryMb / 1024)} / {Math.round(c.capacity.memoryMb / 1024)} GB
-              </span>
-            </div>
-            <Meter value={c.allocated.memoryMb} max={c.capacity.memoryMb} />
-          </div>
+          <Meter
+            label="vCPUs allocated"
+            detail={`${c.allocated.cores} / ${c.capacity.cores}`}
+            value={c.allocated.cores}
+            max={c.capacity.cores}
+          />
+          <Meter
+            label="Memory allocated"
+            detail={`${Math.round(c.allocated.memoryMb / 1024)} / ${Math.round(c.capacity.memoryMb / 1024)} GB`}
+            value={c.allocated.memoryMb}
+            max={c.capacity.memoryMb}
+          />
         </div>
         {c.nodes.length > 0 ? (
           <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
             {c.nodes.map((n) => (
-              <div key={n.node}>
-                <div className="mb-1 flex items-center justify-between text-xs">
-                  <span className="font-semibold">{n.node}</span>
-                  <span className={n.status === "online" ? "text-muted-foreground" : "text-destructive"}>
-                    {n.status === "online"
-                      ? `CPU ${Math.round(n.cpu * 100)}% · RAM ${Math.round((n.mem / (n.maxmem || 1)) * 100)}%`
-                      : n.status}
-                  </span>
-                </div>
-                <Meter value={n.mem} max={n.maxmem} className="bg-success" />
-              </div>
+              <Meter
+                key={n.node}
+                tone="success"
+                label={<span className="font-semibold text-foreground">{n.node}</span>}
+                detail={
+                  n.status === "online"
+                    ? `CPU ${Math.round(n.cpu * 100)}% · RAM ${Math.round((n.mem / (n.maxmem || 1)) * 100)}%`
+                    : n.status
+                }
+                value={n.mem}
+                max={n.maxmem}
+              />
             ))}
           </div>
         ) : null}
       </div>
-    </Panel>
+    </SectionCard>
   );
 }
 

@@ -3,34 +3,33 @@
 import { Plus, Server } from "lucide-react";
 import Link from "next/link";
 import { EmptyState } from "@/components/empty-state";
+import { Meter } from "@/components/meter";
 import { PageHeader } from "@/components/page-header";
+import { SectionCard } from "@/components/section-card";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type Cluster, useClusters, useVms } from "@/lib/client";
-import { Meter, Panel, VmTable } from "./common";
+import { VmTable } from "./common";
 
 function Quota({ label, used, max, unit = "" }: { label: string; used: number; max: number; unit?: string }) {
   if (!max) return null;
   return (
-    <div className="min-w-24 flex-1">
-      <div className="mb-1 flex justify-between text-xs text-muted-foreground">
-        <span>{label}</span>
-        <span className="tabular-nums">
-          {used}/{max}
-          {unit}
-        </span>
-      </div>
-      <Meter value={used} max={max} />
-    </div>
+    <Meter
+      className="min-w-24 flex-1"
+      label={label}
+      detail={`${used}/${max}${unit}`}
+      value={used}
+      max={max}
+    />
   );
 }
 
 function ClusterCard({ c }: { c: Cluster }) {
   const q = c.quota;
   return (
-    <Panel
+    <SectionCard
       title={
         <>
           {c.name}
@@ -64,7 +63,7 @@ function ClusterCard({ c }: { c: Cluster }) {
           <Quota label="Disk" used={c.usage.diskGb} max={q.maxDiskGb} unit=" GB" />
         </div>
       ) : null}
-    </Panel>
+    </SectionCard>
   );
 }
 
@@ -100,9 +99,9 @@ export function MyVms() {
           {vms.isLoading ? (
             <Skeleton className="h-40" />
           ) : vms.data?.length ? (
-            <Panel>
+            <SectionCard>
               <VmTable vms={vms.data} clusters={clusters.data ?? []} />
-            </Panel>
+            </SectionCard>
           ) : (
             <EmptyState
               icon={<Server />}

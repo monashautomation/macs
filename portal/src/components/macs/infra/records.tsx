@@ -2,10 +2,11 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/page-header";
+import { SectionCard } from "@/components/section-card";
 import { StatusBadge } from "@/components/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { type AuditRow, api, type Job, type Person } from "@/lib/client";
-import { fmtDateTime, fmtGB, JobRow, Muted, Panel } from "../common";
+import { fmtDateTime, fmtGB, JobRow, Muted } from "../common";
 
 export function InfraPeople() {
   const q = useQuery({ queryKey: ["people"], queryFn: () => api<Person[]>("/admin/people") });
@@ -15,7 +16,7 @@ export function InfraPeople() {
         title="People"
         description="Everyone who has signed in. Access comes from their Authentik groups, refreshed at each sign-in."
       />
-      <Panel>
+      <SectionCard>
         {q.data?.length ? (
           <Table>
             <TableHeader>
@@ -32,8 +33,8 @@ export function InfraPeople() {
                 <TableRow key={p.id}>
                   <TableCell>
                     <span className="font-semibold">{p.name}</span>{" "}
-                    <span className="text-muted-foreground">{p.email}</span>{" "}
                     {p.isAdmin ? <StatusBadge tone="info">infrastructure</StatusBadge> : null}
+                    <span className="block text-xs text-muted-foreground">{p.email}</span>
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {p.groups.join(", ") || "—"}
@@ -52,7 +53,7 @@ export function InfraPeople() {
         ) : (
           <Muted>Nobody yet.</Muted>
         )}
-      </Panel>
+      </SectionCard>
     </>
   );
 }
@@ -69,7 +70,7 @@ export function InfraActivity() {
         title="Activity"
         description="Operations the portal has run on the clusters, newest first."
       />
-      <Panel>
+      <SectionCard>
         {q.data?.length ? (
           <ul>
             {q.data.map((j) => (
@@ -79,7 +80,7 @@ export function InfraActivity() {
         ) : (
           <Muted>No activity yet.</Muted>
         )}
-      </Panel>
+      </SectionCard>
     </>
   );
 }
@@ -93,7 +94,7 @@ export function InfraAudit() {
   return (
     <>
       <PageHeader title="Audit log" description="Who did what." />
-      <Panel>
+      <SectionCard>
         <Table>
           <TableBody>
             {q.data?.map((a) => (
@@ -109,7 +110,7 @@ export function InfraAudit() {
             ))}
           </TableBody>
         </Table>
-      </Panel>
+      </SectionCard>
     </>
   );
 }

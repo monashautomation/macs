@@ -4,8 +4,10 @@ import { ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useState } from "react";
+import { CopyField } from "@/components/copy-field";
 import { EmptyState } from "@/components/empty-state";
 import { useConfirm } from "@/components/providers";
+import { SectionCard } from "@/components/section-card";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,7 +30,6 @@ import {
   JobRow,
   Muted,
   Note,
-  Panel,
   Pick,
   ServiceAddress,
   VmStatus,
@@ -39,27 +40,6 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
     <div>
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 text-sm">{children}</dd>
-    </div>
-  );
-}
-
-function CopyBox({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="flex items-stretch overflow-hidden rounded-md border border-border bg-muted">
-      <code className="min-w-0 flex-1 overflow-x-auto px-3 py-2 text-xs whitespace-nowrap">{text}</code>
-      <button
-        type="button"
-        className="border-l border-border px-3 text-xs font-medium text-muted-foreground hover:text-foreground"
-        onClick={() =>
-          navigator.clipboard.writeText(text).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-          })
-        }
-      >
-        {copied ? "Copied" : "Copy"}
-      </button>
     </div>
   );
 }
@@ -90,7 +70,7 @@ function ConnectionRow({ c, name }: { c: Connection; name: string }) {
           </a>
         ) : null}
       </div>
-      <CopyBox text={c.command} />
+      <CopyField value={c.command} label={`Copy ${c.label} address`} />
       {c.kind === "sunshine" ? (
         <p className="mt-1 text-xs text-muted-foreground">
           In Moonlight choose “Add host” and enter this address.
@@ -127,7 +107,7 @@ function ServicesPanel({ vm, approval, max }: { vm: Detail; approval: boolean; m
   );
   const remove = useAct((id: string) => api(`/services/${id}`, { method: "DELETE" }));
   return (
-    <Panel
+    <SectionCard
       title="Public services"
       actions={
         <Button
@@ -253,7 +233,7 @@ function ServicesPanel({ vm, approval, max }: { vm: Detail; approval: boolean; m
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Panel>
+    </SectionCard>
   );
 }
 
@@ -350,7 +330,7 @@ export function VmDetail({ id }: { id: string }) {
         </Note>
       ) : null}
 
-      <Panel title="Details">
+      <SectionCard title="Details">
         <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <Fact label="Cluster">{cluster?.name ?? vm.clusterId}</Fact>
           <Fact label="Node">{vm.node ?? "—"}</Fact>
@@ -365,10 +345,10 @@ export function VmDetail({ id }: { id: string }) {
             {vm.ips.length ? vm.ips.join(", ") : running ? "waiting for guest agent…" : "—"}
           </Fact>
         </dl>
-      </Panel>
+      </SectionCard>
 
       {active ? (
-        <Panel
+        <SectionCard
           title="Connect"
           actions={
             running ? (
@@ -406,7 +386,7 @@ export function VmDetail({ id }: { id: string }) {
               ) : null}
             </div>
           )}
-        </Panel>
+        </SectionCard>
       ) : null}
 
       {cluster?.network.services && active ? (
@@ -418,7 +398,7 @@ export function VmDetail({ id }: { id: string }) {
       ) : null}
 
       {cluster?.hasGpus && vm.status !== "archived" ? (
-        <Panel
+        <SectionCard
           title="GPU"
           actions={
             vm.gpuAccess === "approved" && active ? (
@@ -503,11 +483,11 @@ export function VmDetail({ id }: { id: string }) {
               </p>
             )
           ) : null}
-        </Panel>
+        </SectionCard>
       ) : null}
 
       {cluster?.hasBackups && (active || vm.status === "archived") ? (
-        <Panel
+        <SectionCard
           title="Backups"
           actions={
             active ? (
@@ -580,17 +560,17 @@ export function VmDetail({ id }: { id: string }) {
           ) : (
             <Muted>No backups yet.</Muted>
           )}
-        </Panel>
+        </SectionCard>
       ) : null}
 
       {vm.jobs.length > 0 ? (
-        <Panel title="Recent activity">
+        <SectionCard title="Recent activity">
           <ul>
             {vm.jobs.map((j) => (
               <JobRow key={`${j.id}-${j.status}`} job={j} />
             ))}
           </ul>
-        </Panel>
+        </SectionCard>
       ) : null}
 
       {vm.status !== "provisioning" ? (

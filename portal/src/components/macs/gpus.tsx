@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { useConfirm } from "@/components/providers";
+import { SectionCard } from "@/components/section-card";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,7 +33,7 @@ import {
   type Vm,
 } from "@/lib/client";
 import { cn } from "@/lib/utils";
-import { Field, fmtDateTime, fmtTime, Note, Panel, Pick } from "./common";
+import { Field, fmtDateTime, fmtTime, Note, Pick } from "./common";
 
 const DAY = 86_400_000;
 const DAYS = 7;
@@ -66,7 +67,7 @@ function DeviceCard({
     (v) => v.clusterId === cluster.clusterId && v.status === "active" && v.vmid !== h?.vmid,
   );
   return (
-    <Panel
+    <SectionCard
       title={gpu.id}
       actions={<StatusBadge tone={h ? "info" : "success"}>{h ? "in use" : "free"}</StatusBadge>}
     >
@@ -170,7 +171,7 @@ function DeviceCard({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Panel>
+    </SectionCard>
   );
 }
 
@@ -467,7 +468,7 @@ export function Gpus({ admin = false }: { admin?: boolean }) {
             <DeviceCard key={g.id} gpu={g} cluster={cluster} vms={vms.data ?? []} admin={admin} />
           ))}
         </div>
-        <Panel title="Book GPU time">
+        <SectionCard title="Book GPU time">
           <BookingForm
             key={cluster.clusterId}
             eligible={eligible}
@@ -475,8 +476,8 @@ export function Gpus({ admin = false }: { admin?: boolean }) {
             preselect={preselect}
             primary={!admin}
           />
-        </Panel>
-        <Panel
+        </SectionCard>
+        <SectionCard
           title="Schedule"
           actions={
             <>
@@ -509,7 +510,7 @@ export function Gpus({ admin = false }: { admin?: boolean }) {
             meId={meId}
             admin={admin}
           />
-        </Panel>
+        </SectionCard>
       </div>
     </>
   );

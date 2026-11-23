@@ -4,9 +4,10 @@ import { Globe } from "lucide-react";
 import Link from "next/link";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { SectionCard } from "@/components/section-card";
 import { Badge } from "@/components/ui/badge";
 import { useClusters, useServices, useSession } from "@/lib/client";
-import { Panel, ServiceAddress } from "./common";
+import { ServiceAddress } from "./common";
 
 export function Services() {
   const services = useServices();
@@ -20,7 +21,7 @@ export function Services() {
         description={`VMs on ${hosts.join(" and ") || "the homelab"} cannot reach each other. A VM's owner can publish individual ports, which makes them reachable over NetBird. To add your own, open one of your VMs.`}
       />
       {services.data?.length ? (
-        <Panel>
+        <SectionCard>
           <ul>
             {services.data.map((s) => (
               <li
@@ -40,7 +41,7 @@ export function Services() {
               </li>
             ))}
           </ul>
-        </Panel>
+        </SectionCard>
       ) : services.isLoading ? null : (
         <EmptyState
           icon={<Globe />}

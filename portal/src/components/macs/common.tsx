@@ -4,37 +4,11 @@ import Link from "next/link";
 import { type ReactNode, useState } from "react";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Cluster, Image, Job, Service, Vm } from "@/lib/client";
 import { cn } from "@/lib/utils";
-
-/** A titled card section. Keep at most one primary button per page across `actions`. */
-export function Panel({
-  title,
-  actions,
-  children,
-  className,
-}: {
-  title?: ReactNode;
-  actions?: ReactNode;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <Card className={cn("gap-4 py-5", className)}>
-      {title || actions ? (
-        <CardHeader className="px-5">
-          <CardTitle className="flex flex-wrap items-center gap-2 text-base leading-7">{title}</CardTitle>
-          {actions ? <CardAction className="flex flex-wrap justify-end gap-2">{actions}</CardAction> : null}
-        </CardHeader>
-      ) : null}
-      <CardContent className="px-5">{children}</CardContent>
-    </Card>
-  );
-}
 
 export function Field({
   label,
@@ -256,18 +230,6 @@ export function ServiceAddress({ s }: { s: Service }) {
     <code className="text-xs">
       {s.address} ({s.protocol})
     </code>
-  );
-}
-
-export function Meter({ value, max, className }: { value: number; max: number; className?: string }) {
-  const pct = max ? Math.min(100, (value / max) * 100) : 0;
-  return (
-    <div className="h-1.5 rounded-full bg-muted">
-      <div
-        className={cn("h-full rounded-full", pct > 90 ? "bg-destructive" : (className ?? "bg-primary"))}
-        style={{ width: `${pct}%` }}
-      />
-    </div>
   );
 }
 

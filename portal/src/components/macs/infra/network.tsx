@@ -6,10 +6,11 @@ import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { useConfirm } from "@/components/providers";
+import { SectionCard } from "@/components/section-card";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { api, type Overview, type Service, useAct, useOverview } from "@/lib/client";
-import { Muted, Note, Panel, ServiceAddress } from "../common";
+import { Muted, Note, ServiceAddress } from "../common";
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -31,7 +32,7 @@ function Policy({ c }: { c: Overview }) {
     ),
   );
   return (
-    <Panel
+    <SectionCard
       title={
         <>
           {c.name}
@@ -94,7 +95,7 @@ function Policy({ c }: { c: Overview }) {
           ports, re-apply.
         </p>
       ) : null}
-    </Panel>
+    </SectionCard>
   );
 }
 
@@ -117,7 +118,7 @@ export function InfraNetwork() {
         {overview.data?.map((c) => (
           <Policy key={c.id} c={c} />
         ))}
-        <Panel title="All published services">
+        <SectionCard title="All published services">
           {services.data?.length ? (
             <ul className="text-sm">
               {services.data.map((s) => (
@@ -159,7 +160,7 @@ export function InfraNetwork() {
           ) : (
             <Muted>No services.</Muted>
           )}
-        </Panel>
+        </SectionCard>
       </div>
     </>
   );

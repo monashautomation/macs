@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { useConfirm } from "@/components/providers";
+import { SectionCard } from "@/components/section-card";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { type AdminImage, type AdminImages, api, useAct, useClusters } from "@/lib/client";
 import { cn } from "@/lib/utils";
-import { Field, fmtSize, Muted, Note, Panel, Pick } from "../common";
+import { Field, fmtSize, Muted, Note, Pick } from "../common";
 
 type Os = "linux" | "windows" | "other";
 interface Draft {
@@ -250,7 +251,7 @@ export function InfraImages() {
         {data?.error ? (
           <Note tone="danger">Cluster unreachable, so discovery is unavailable: {data.error}</Note>
         ) : null}
-        <Panel title="In the library">
+        <SectionCard title="In the library">
           {data?.images.length ? (
             <ul className="text-sm">
               {data.images.map((i) => (
@@ -300,9 +301,9 @@ export function InfraImages() {
           ) : (
             <Muted>{q.isLoading ? "Loading…" : "The library is empty for this cluster."}</Muted>
           )}
-        </Panel>
+        </SectionCard>
 
-        <Panel title="Templates on the cluster not yet listed">
+        <SectionCard title="Templates on the cluster not yet listed">
           {data?.unlisted.templates.length ? (
             <ul className="text-sm">
               {data.unlisted.templates.map((t) => (
@@ -330,9 +331,9 @@ export function InfraImages() {
           ) : (
             <Muted>Every template on the cluster is listed.</Muted>
           )}
-        </Panel>
+        </SectionCard>
 
-        <Panel title={`ISO installers${data?.isoStorage ? ` on ${data.isoStorage}` : ""}`}>
+        <SectionCard title={`ISO installers${data?.isoStorage ? ` on ${data.isoStorage}` : ""}`}>
           {!data?.isoStorage ? (
             <Muted>Set iso_storage for this cluster in the config file to offer ISO installs.</Muted>
           ) : data.unlisted.isos.length ? (
@@ -370,7 +371,7 @@ export function InfraImages() {
           ) : (
             <Muted>Every ISO on the storage is listed.</Muted>
           )}
-        </Panel>
+        </SectionCard>
       </div>
       {draft ? (
         <Editor

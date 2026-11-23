@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { PageHeader } from "@/components/page-header";
+import { SectionCard } from "@/components/section-card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -15,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { api, type Person, type Unmanaged, useAct, useClusters, useVms } from "@/lib/client";
-import { Field, Muted, Note, Panel, Pick, VmTable } from "../common";
+import { Field, Muted, Note, Pick, VmTable } from "../common";
 
 function Adopt() {
   const clusters = useClusters();
@@ -40,7 +41,7 @@ function Adopt() {
     { quiet: true },
   );
   return (
-    <Panel
+    <SectionCard
       title="On the cluster but not managed by the portal"
       actions={
         <Pick
@@ -121,7 +122,7 @@ function Adopt() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Panel>
+    </SectionCard>
   );
 }
 
@@ -148,13 +149,13 @@ export function InfraMachines() {
         }
       />
       <div className="space-y-5">
-        <Panel>
+        <SectionCard>
           {rows.length ? (
             <VmTable vms={rows} clusters={clusters.data ?? []} showOwner />
           ) : (
             <Muted>{vms.isLoading ? "Loading…" : "No VMs."}</Muted>
           )}
-        </Panel>
+        </SectionCard>
         <Adopt />
       </div>
     </>

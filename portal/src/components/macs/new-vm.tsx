@@ -3,24 +3,19 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { ChoiceCard } from "@/components/choice-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { SectionCard } from "@/components/section-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { api, useAct, useClusters, useSession, type Vm } from "@/lib/client";
-import { cn } from "@/lib/utils";
-import { Field, ImageBadges, Note, Panel, Pick } from "./common";
+import { Field, ImageBadges, Note, Pick } from "./common";
 
 const upTo = (options: number[], max: number) => options.filter((o) => o <= max);
-const choice = (active: boolean) =>
-  cn(
-    "rounded-lg border p-3 text-left text-sm",
-    active ? "border-primary bg-info-bg" : "border-border hover:bg-accent",
-  );
-
 export function NewVm() {
   const clusters = useClusters();
   const me = useSession();
@@ -87,37 +82,36 @@ export function NewVm() {
       }}
     >
       <PageHeader title="New VM" />
-      <Panel title="Where">
+      <SectionCard title="Where">
         <div className="grid gap-3 sm:grid-cols-2">
           {clusters.data.map((c) => (
-            <button
-              type="button"
+            <ChoiceCard
               key={c.id}
-              aria-pressed={c.id === cluster.id}
-              className={choice(c.id === cluster.id)}
+              selected={c.id === cluster.id}
               onClick={() => {
                 setClusterId(c.id);
                 setImageId("");
               }}
-            >
-              <span className="flex flex-wrap items-center gap-2 font-semibold">
-                {c.name}
-                {c.hasGpus ? <Badge variant="secondary">GPU</Badge> : null}
-              </span>
-              <span className="mt-1 block text-xs text-muted-foreground">
-                {c.approval === "none"
-                  ? "Ready in a minute or two, no approval needed."
-                  : "Systems & Infra review each request."}
-              </span>
-              {c.network.description ? (
-                <span className="mt-1 block text-xs text-muted-foreground">{c.network.description}</span>
-              ) : null}
-            </button>
+              title={
+                <>
+                  {c.name}
+                  {c.hasGpus ? <Badge variant="secondary">GPU</Badge> : null}
+                </>
+              }
+              description={
+                <>
+                  {c.approval === "none"
+                    ? "Ready in a minute or two, no approval needed."
+                    : "Systems & Infra review each request."}
+                  {c.network.description ? <span className="mt-1 block">{c.network.description}</span> : null}
+                </>
+              }
+            />
           ))}
         </div>
-      </Panel>
+      </SectionCard>
 
-      <Panel title="What">
+      <SectionCard title="What">
         <div className="space-y-4">
           <Field
             label="Name"
@@ -143,18 +137,14 @@ export function NewVm() {
             {cluster.images.length ? (
               <div className="grid max-h-72 gap-2 overflow-y-auto sm:grid-cols-2">
                 {cluster.images.map((i) => (
-                  <button
-                    type="button"
+                  <ChoiceCard
                     key={i.id}
-                    aria-pressed={i.id === image?.id}
-                    className={choice(i.id === image?.id)}
+                    selected={i.id === image?.id}
                     onClick={() => setImageId(i.id)}
+                    title={i.name}
                   >
-                    <span className="block font-semibold">{i.name}</span>
-                    <span className="mt-1.5 flex flex-wrap gap-1">
-                      <ImageBadges image={i} />
-                    </span>
-                  </button>
+                    <ImageBadges image={i} />
+                  </ChoiceCard>
                 ))}
               </div>
             ) : (
@@ -227,10 +217,10 @@ export function NewVm() {
             </Field>
           ) : null}
         </div>
-      </Panel>
+      </SectionCard>
 
       {needsApproval || gpuPossible ? (
-        <Panel title={needsApproval ? "Approval" : "GPU"}>
+        <SectionCard title={needsApproval ? "Approval" : "GPU"}>
           <div className="space-y-4">
             {gpuPossible ? (
               <div className="flex items-start gap-3">
@@ -271,7 +261,7 @@ export function NewVm() {
               </Field>
             ) : null}
           </div>
-        </Panel>
+        </SectionCard>
       ) : null}
 
       {create.error ? <Note tone="danger">{create.error.message}</Note> : null}
