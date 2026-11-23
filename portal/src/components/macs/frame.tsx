@@ -1,12 +1,12 @@
 "use client";
 
+import { AppShell } from "@monashautomation/ui/app-shell";
+import { Badge } from "@monashautomation/ui/badge";
+import { SectionNav } from "@monashautomation/ui/section-nav";
 import { Cpu, Disc3, Globe, Server, Wrench } from "lucide-react";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { AppShell } from "@/components/app-shell";
 import { SignOutButton } from "@/components/auth-buttons";
-import { SectionNav } from "@/components/section-nav";
-import { Badge } from "@/components/ui/badge";
 import { pendingCount, useApprovals } from "@/lib/client";
 
 export interface FrameProps {

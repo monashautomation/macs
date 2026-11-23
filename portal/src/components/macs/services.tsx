@@ -1,11 +1,11 @@
 "use client";
 
+import { Badge } from "@monashautomation/ui/badge";
+import { EmptyState } from "@monashautomation/ui/empty-state";
+import { PageHeader } from "@monashautomation/ui/page-header";
+import { SectionCard } from "@monashautomation/ui/section-card";
 import { Globe } from "lucide-react";
 import Link from "next/link";
-import { EmptyState } from "@/components/empty-state";
-import { PageHeader } from "@/components/page-header";
-import { SectionCard } from "@/components/section-card";
-import { Badge } from "@/components/ui/badge";
 import { useClusters, useServices, useSession } from "@/lib/client";
 import { ServiceAddress } from "./common";
 

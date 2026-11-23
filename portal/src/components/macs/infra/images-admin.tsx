@@ -1,14 +1,8 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { PageHeader } from "@/components/page-header";
-import { useConfirm } from "@/components/providers";
-import { SectionCard } from "@/components/section-card";
-import { StatusBadge } from "@/components/status-badge";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@monashautomation/ui/badge";
+import { Button } from "@monashautomation/ui/button";
+import { Checkbox } from "@monashautomation/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -16,11 +10,17 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+} from "@monashautomation/ui/dialog";
+import { Input } from "@monashautomation/ui/input";
+import { PageHeader } from "@monashautomation/ui/page-header";
+import { SectionCard } from "@monashautomation/ui/section-card";
+import { StatusBadge } from "@monashautomation/ui/status-badge";
+import { Textarea } from "@monashautomation/ui/textarea";
+import { cn } from "@monashautomation/ui/utils";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useConfirm } from "@/components/providers";
 import { type AdminImage, type AdminImages, api, useAct, useClusters } from "@/lib/client";
-import { cn } from "@/lib/utils";
 import { Field, fmtSize, Muted, Note, Pick } from "../common";
 
 type Os = "linux" | "windows" | "other";

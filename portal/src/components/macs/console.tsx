@@ -1,9 +1,9 @@
 "use client";
 
+import { Button } from "@monashautomation/ui/button";
+import { StatusBadge } from "@monashautomation/ui/status-badge";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { StatusBadge } from "@/components/status-badge";
-import { Button } from "@/components/ui/button";
 import { api } from "@/lib/client";
 
 type State = "connecting" | "connected" | "closed";

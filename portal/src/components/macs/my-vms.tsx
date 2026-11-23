@@ -1,15 +1,15 @@
 "use client";
 
+import { Badge } from "@monashautomation/ui/badge";
+import { Button } from "@monashautomation/ui/button";
+import { EmptyState } from "@monashautomation/ui/empty-state";
+import { Meter } from "@monashautomation/ui/meter";
+import { PageHeader } from "@monashautomation/ui/page-header";
+import { SectionCard } from "@monashautomation/ui/section-card";
+import { Skeleton } from "@monashautomation/ui/skeleton";
+import { StatusBadge } from "@monashautomation/ui/status-badge";
 import { Plus, Server } from "lucide-react";
 import Link from "next/link";
-import { EmptyState } from "@/components/empty-state";
-import { Meter } from "@/components/meter";
-import { PageHeader } from "@/components/page-header";
-import { SectionCard } from "@/components/section-card";
-import { StatusBadge } from "@/components/status-badge";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { type Cluster, useClusters, useVms } from "@/lib/client";
 import { VmTable } from "./common";
 

@@ -1,10 +1,10 @@
 "use client";
 
+import { PageHeader } from "@monashautomation/ui/page-header";
+import { SectionCard } from "@monashautomation/ui/section-card";
+import { StatusBadge } from "@monashautomation/ui/status-badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@monashautomation/ui/table";
 import { useQuery } from "@tanstack/react-query";
-import { PageHeader } from "@/components/page-header";
-import { SectionCard } from "@/components/section-card";
-import { StatusBadge } from "@/components/status-badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { type AuditRow, api, type Job, type Person } from "@/lib/client";
 import { fmtDateTime, fmtGB, JobRow, Muted } from "../common";
 

@@ -1,11 +1,7 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { PageHeader } from "@/components/page-header";
-import { SectionCard } from "@/components/section-card";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Button } from "@monashautomation/ui/button";
+import { Checkbox } from "@monashautomation/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -13,8 +9,12 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+} from "@monashautomation/ui/dialog";
+import { Input } from "@monashautomation/ui/input";
+import { PageHeader } from "@monashautomation/ui/page-header";
+import { SectionCard } from "@monashautomation/ui/section-card";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { api, type Person, type Unmanaged, useAct, useClusters, useVms } from "@/lib/client";
 import { Field, Muted, Note, Pick, VmTable } from "../common";
 

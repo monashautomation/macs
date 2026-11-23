@@ -1,8 +1,7 @@
+import { Toaster } from "@monashautomation/ui/sonner";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Providers } from "@/components/providers";
-import { Toaster } from "@/components/ui/sonner";
-import "@/lib/ma-fonts";
 import "./globals.css";
 
 export const metadata: Metadata = {

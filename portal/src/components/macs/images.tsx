@@ -1,11 +1,11 @@
 "use client";
 
+import { Button } from "@monashautomation/ui/button";
+import { EmptyState } from "@monashautomation/ui/empty-state";
+import { PageHeader } from "@monashautomation/ui/page-header";
+import { SectionCard } from "@monashautomation/ui/section-card";
 import Link from "next/link";
 import { useState } from "react";
-import { EmptyState } from "@/components/empty-state";
-import { PageHeader } from "@/components/page-header";
-import { SectionCard } from "@/components/section-card";
-import { Button } from "@/components/ui/button";
 import { useClusters } from "@/lib/client";
 import { ImageBadges } from "./common";
 

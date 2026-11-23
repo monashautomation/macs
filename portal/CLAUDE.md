@@ -27,21 +27,10 @@ node scripts/mock-authentik.mjs   # dev-only sign-in; with MACS_CONFIG=./config.
 - Build URLs with `absoluteUrl()` / `safeRedirectPath()` (`src/lib/url.ts`), never from `request.url` or Host.
 - Services call with their own key (`SERVICE_KEYS`), never a shared secret.
 - No secrets in Git. New env var → `src/env.ts`, `.env.example`, and the OpenBao entry (tell Systems & Infra).
-- UI: use the components in `src/components/` (from MA-App-UI; catalogue in that repo's `COMPONENTS.md`). `AppShell` frames every page, one primary button per view, `StatusBadge` for states. Need a component that isn't here? Check MA-App-UI and install it with `node <MA-App-UI>/scripts/add.mjs . <name>`; if it doesn't exist, build it in MA-App-UI so every app gets it.
-- Colours only from brand tokens (`bg-primary`, `text-muted-foreground`…); no hex or raw palette classes (`pnpm lint` checks).
+- UI: use the components from the `@monashautomation/ui` package (`import { Button } from "@monashautomation/ui/button"`; catalogue in MA-App-UI's `COMPONENTS.md`). `AppShell` frames every page, one primary button per view, `StatusBadge` for states. Never copy a shared component into this repo. Need one that doesn't exist? Add it to MA-App-UI, release it, and bump the dependency here.
+- Colours only from brand tokens (`bg-primary`, `text-muted-foreground`…); no hex or raw palette classes (`pnpm lint` runs `ma-brand-lint`).
 - Schema changes: new Prisma migration, forward-only. Data work against local Postgres unless a human says "live".
 - Logs: `logger` (JSON); log user ids, never emails or tokens.
-
-## This app
-
-- Layout: route files in `src/app/api/v1` stay thin; behaviour lives in `src/server/handlers` (authorisation, validation) and `src/server/services` (the Proxmox engine). Screens are in `src/components/macs`.
-- Proxmox is reached only through the `ProxmoxDriver` interface (`src/server/proxmox/types.ts`). Add a call to the interface, the real client **and** the mock, and cover it in `tests/`.
-- Anything slow on Proxmox runs as a job (`startJob`): one running job per VM, enforced by a partial unique index.
-- The engine keeps state in memory (`src/server/core.ts`): the app is a single replica. Don't add anything that assumes two.
-- GPU holders are always derived from live `hostpci` config, never stored.
-- Firewall rules the portal owns are marked `macs:`; never touch others.
-- Cluster config keys are snake_case (they mirror the YAML); everything else is camelCase.
-- Never point tests or `config.dev.yaml` at a real cluster.
 
 ## This app
 

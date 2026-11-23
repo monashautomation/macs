@@ -1,14 +1,14 @@
 "use client";
 
+import { Badge } from "@monashautomation/ui/badge";
+import { Label } from "@monashautomation/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@monashautomation/ui/select";
+import { StatusBadge } from "@monashautomation/ui/status-badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@monashautomation/ui/table";
+import { cn } from "@monashautomation/ui/utils";
 import Link from "next/link";
 import { type ReactNode, useState } from "react";
-import { StatusBadge } from "@/components/status-badge";
-import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Cluster, Image, Job, Service, Vm } from "@/lib/client";
-import { cn } from "@/lib/utils";
 
 export function Field({
   label,

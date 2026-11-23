@@ -1,15 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
-import { EmptyState } from "@/components/empty-state";
-import { PageHeader } from "@/components/page-header";
-import { useConfirm } from "@/components/providers";
-import { SectionCard } from "@/components/section-card";
-import { StatusBadge } from "@/components/status-badge";
-import { Button } from "@/components/ui/button";
+import { Button } from "@monashautomation/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -17,8 +8,18 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+} from "@monashautomation/ui/dialog";
+import { EmptyState } from "@monashautomation/ui/empty-state";
+import { Input } from "@monashautomation/ui/input";
+import { PageHeader } from "@monashautomation/ui/page-header";
+import { SectionCard } from "@monashautomation/ui/section-card";
+import { StatusBadge } from "@monashautomation/ui/status-badge";
+import { cn } from "@monashautomation/ui/utils";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useMemo, useState } from "react";
+import { useConfirm } from "@/components/providers";
 import {
   api,
   type GpuCluster,
@@ -32,7 +33,6 @@ import {
   useVms,
   type Vm,
 } from "@/lib/client";
-import { cn } from "@/lib/utils";
 import { Field, fmtDateTime, fmtTime, Note, Pick } from "./common";
 
 const DAY = 86_400_000;

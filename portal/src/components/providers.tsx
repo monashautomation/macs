@@ -1,7 +1,5 @@
 "use client";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createContext, type ReactNode, useCallback, useContext, useState } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -11,8 +9,10 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { buttonVariants } from "@/components/ui/button";
+} from "@monashautomation/ui/alert-dialog";
+import { buttonVariants } from "@monashautomation/ui/button";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createContext, type ReactNode, useCallback, useContext, useState } from "react";
 
 type Ask = { title: string; description?: ReactNode; confirm?: string; destructive?: boolean };
 const ConfirmContext = createContext<(ask: Ask) => Promise<boolean>>(async () => false);

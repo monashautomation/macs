@@ -2,7 +2,7 @@
 
 Self-service virtual machines and GPU time on Monash Automation's Proxmox
 clusters. Built from [MA-App-Template](https://github.com/monashautomation/MA-App-Template)
-with [MA-App-UI](https://github.com/monashautomation/MA-App-UI) components, so it
+with the [`@monashautomation/ui`](https://github.com/monashautomation/MA-App-UI) package, so it
 follows the platform app standard (central-platform-argocd `docs/standards/app-standard.md`).
 
 **Stack:** Next.js 16 (App Router) · TypeScript · better-auth with Authentik (OIDC + PKCE) · Prisma + Postgres · Tailwind 4 + MA-App-UI · zod · pino · Vitest · Biome · pnpm.
@@ -74,7 +74,7 @@ TEST_DATABASE_URL=postgresql://postgres:dev@localhost:5432/macs_test pnpm test
 
 ```
 src/app/                 pages and API routes (thin)
-src/components/macs/     this app's screens, built from MA-App-UI components
+src/components/macs/     this app's screens, built from @monashautomation/ui components
 src/server/config.ts     cluster config file (YAML, zod-validated)
 src/server/proxmox/      Proxmox REST client, and the mock used in dev/tests
 src/server/services/     the engine: provisioning, GPUs, scheduler, backups, firewall, images
@@ -84,6 +84,19 @@ src/server/boot.ts       started once per process: scheduler + console relay
 prisma/                  schema and migrations
 deploy/                  ArgoCD values, ExternalSecret, NetworkPolicy
 ```
+
+## Shared UI
+
+Every shared component and the whole theme come from the `@monashautomation/ui`
+package (MA-App-UI). `src/app/globals.css` imports its `theme.css`,
+`next.config.ts` lists it in `transpilePackages`, and `pnpm lint` runs its
+`ma-brand-lint`. Nothing shared is copied into this repo.
+
+The dependency is pinned to a git commit of MA-App-UI until that package has a
+published release; then switch it to a version (`^0.2.0`) and add the GitHub
+Packages registry line to `.npmrc` (see MA-App-UI's README). Either way,
+installing it needs read access to that repo/package: CI and the Docker build
+need a token for it.
 
 ## Configuration
 

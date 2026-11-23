@@ -1,15 +1,7 @@
 "use client";
 
-import { ExternalLink } from "lucide-react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { type ReactNode, useState } from "react";
-import { CopyField } from "@/components/copy-field";
-import { EmptyState } from "@/components/empty-state";
-import { useConfirm } from "@/components/providers";
-import { SectionCard } from "@/components/section-card";
-import { StatusBadge } from "@/components/status-badge";
-import { Button } from "@/components/ui/button";
+import { Button } from "@monashautomation/ui/button";
+import { CopyField } from "@monashautomation/ui/copy-field";
 import {
   Dialog,
   DialogContent,
@@ -17,9 +9,17 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+} from "@monashautomation/ui/dialog";
+import { EmptyState } from "@monashautomation/ui/empty-state";
+import { Input } from "@monashautomation/ui/input";
+import { SectionCard } from "@monashautomation/ui/section-card";
+import { StatusBadge } from "@monashautomation/ui/status-badge";
+import { Textarea } from "@monashautomation/ui/textarea";
+import { ExternalLink } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { type ReactNode, useState } from "react";
+import { useConfirm } from "@/components/providers";
 import { api, type Connection, type VmDetail as Detail, useAct, useClusters, useVm } from "@/lib/client";
 import {
   Field,

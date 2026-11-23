@@ -1,13 +1,13 @@
 "use client";
 
+import { Badge } from "@monashautomation/ui/badge";
+import { Meter } from "@monashautomation/ui/meter";
+import { PageHeader } from "@monashautomation/ui/page-header";
+import { SectionCard } from "@monashautomation/ui/section-card";
+import { cn } from "@monashautomation/ui/utils";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Meter } from "@/components/meter";
-import { PageHeader } from "@/components/page-header";
-import { SectionCard } from "@/components/section-card";
-import { Badge } from "@/components/ui/badge";
 import { type Overview, useOverview } from "@/lib/client";
-import { cn } from "@/lib/utils";
 import { Note } from "../common";
 
 function Stat({
