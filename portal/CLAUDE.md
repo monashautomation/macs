@@ -12,9 +12,6 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build   # what CI runs
 # engine tests need an EMPTY Postgres database, else they are skipped:
 TEST_DATABASE_URL=postgresql://postgres:dev@localhost:5432/macs_test pnpm test
 node scripts/mock-authentik.mjs   # dev-only sign-in; with MACS_CONFIG=./config.dev.yaml nothing real is touched
-# engine tests need an EMPTY Postgres database, else they are skipped:
-TEST_DATABASE_URL=postgresql://postgres:dev@localhost:5432/macs_test pnpm test
-node scripts/mock-authentik.mjs   # dev-only sign-in; with MACS_CONFIG=./config.dev.yaml nothing real is touched
 ```
 
 ## Hard rules

@@ -6,16 +6,29 @@ import { StatusBadge } from "@monashautomation/ui/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@monashautomation/ui/table";
 import { useQuery } from "@tanstack/react-query";
 import { type AuditRow, api, type Job, type Person } from "@/lib/client";
+import { BarList } from "../charts";
 import { fmtDateTime, fmtGB, JobRow, Muted } from "../common";
 
 export function InfraPeople() {
   const q = useQuery({ queryKey: ["people"], queryFn: () => api<Person[]>("/admin/people") });
+  const top = (q.data ?? [])
+    .filter((p) => p.cores > 0)
+    .sort((a, b) => b.cores - a.cores)
+    .slice(0, 8)
+    .map((p) => ({ label: p.name, value: p.cores, detail: `${p.vms} VM${p.vms === 1 ? "" : "s"}` }));
   return (
     <>
       <PageHeader
         title="People"
         description="Everyone who has signed in. Access comes from their Authentik groups, refreshed at each sign-in."
       />
+      {top.length ? (
+        <div className="mb-5">
+          <SectionCard title="vCPUs allocated per person">
+            <BarList rows={top} unit="vCPU" />
+          </SectionCard>
+        </div>
+      ) : null}
       <SectionCard>
         {q.data?.length ? (
           <Table>

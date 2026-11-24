@@ -76,17 +76,33 @@ export const useReservations = (clusterId: string, start: Date, end: Date) =>
 export const useApprovals = (enabled = true) =>
   get<Approvals>(["approvals"], "/admin/approvals", 15_000, enabled);
 export const useOverview = () => get<Overview[]>(["overview"], "/admin/overview", 10_000);
+export type VmMetrics = Out<typeof vms.vmMetrics>;
+export type ClusterMetrics = Out<typeof infra.clusterMetrics>[number];
+export const useVmMetrics = (id: string, timeframe: "hour" | "day" | "week", enabled: boolean) =>
+  get<VmMetrics>(["vm-metrics", id, timeframe], `/vms/${id}/metrics?timeframe=${timeframe}`, 30_000, enabled);
+export function useClusterMetrics() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return get<ClusterMetrics[]>(
+    ["cluster-metrics", today.toISOString()],
+    `/admin/metrics?timeframe=day&today=${today.toISOString()}`,
+    60_000,
+  );
+}
 export const pendingCount = (a?: Approvals) => (a ? a.vms.length + a.services.length : 0);
 
 /** A mutation that refreshes every live query when it settles and toasts failures. */
 export function useAct<TArgs = void, TOut = unknown>(
   fn: (args: TArgs) => Promise<TOut>,
-  opts: { quiet?: boolean } = {},
+  opts: { quiet?: boolean; success?: string | ((args: TArgs) => string) } = {},
 ) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: fn,
     onSettled: () => qc.invalidateQueries(),
+    onSuccess: (_out, args) => {
+      if (opts.success) toast.success(typeof opts.success === "string" ? opts.success : opts.success(args));
+    },
     onError: (e) => {
       if (!opts.quiet) toast.error(e.message);
     },

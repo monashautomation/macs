@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { env } from "@/env";
 import { db } from "@/lib/db";
+import { dailyGpuHours } from "@/lib/gpu-hours";
 import { toPublicUser } from "@/lib/public-user";
 import { rolesForGroups } from "@/lib/roles";
 import { type ClusterConfig, hasGpus } from "@/server/config";
 import { core } from "@/server/core";
 import { HttpError, type Who } from "@/server/http";
-import { diskKey, diskSizeGb, findVm, ProxmoxError } from "@/server/proxmox/types";
+import { diskKey, diskSizeGb, findVm, ProxmoxError, type Timeframe } from "@/server/proxmox/types";
 import { attachGpu, detachGpu, gpuState } from "@/server/services/gpus";
 import { adminImageOut, getImage } from "@/server/services/images";
 import { applyNetworkPolicy } from "@/server/services/network";
@@ -490,6 +491,72 @@ export async function overview() {
         vlan: cl.vlan,
       },
       images,
+    });
+  }
+  return out;
+}
+
+/**
+ * Per cluster: average node CPU and memory use over time, and GPU-hours booked
+ * per day for the last and next week against what the pool could supply.
+ */
+export async function clusterMetrics(timeframe: Timeframe, today: Date) {
+  const c = core();
+  const from = new Date(today);
+  from.setDate(from.getDate() - 7);
+  const to = new Date(today);
+  to.setDate(to.getDate() + 7);
+  const out = [];
+  for (const cl of c.cfg.clusters) {
+    const drv = c.driver(cl.id);
+    let load: { time: number; cpu: number; mem: number }[] = [];
+    let error: string | null = null;
+    try {
+      load = await c.cached(
+        cl.id,
+        `node-metrics:${timeframe}`,
+        async () => {
+          const online = (await drv.nodes()).filter((n) => n.status === "online");
+          const series = await Promise.all(online.map((n) => drv.nodeMetrics(n.node, timeframe)));
+          // Nodes report on the same clock; bucket by timestamp and average across nodes.
+          const buckets = new Map<number, { cpu: number; mem: number; maxmem: number; n: number }>();
+          for (const s of series) {
+            for (const p of s) {
+              const b = buckets.get(p.time) ?? { cpu: 0, mem: 0, maxmem: 0, n: 0 };
+              b.cpu += p.cpu;
+              b.mem += p.mem;
+              b.maxmem += p.maxmem;
+              b.n += 1;
+              buckets.set(p.time, b);
+            }
+          }
+          return [...buckets.entries()]
+            .sort((a, b) => a[0] - b[0])
+            .map(([time, b]) => ({
+              time: time * 1000,
+              cpu: Math.round((b.cpu / b.n) * 1000) / 10,
+              mem: b.maxmem ? Math.round((b.mem / b.maxmem) * 1000) / 10 : 0,
+            }));
+        },
+        60_000,
+      );
+    } catch (e) {
+      if (!(e instanceof ProxmoxError)) throw e;
+      error = e.message;
+    }
+    const gpuCount = cl.gpu.devices.length;
+    const bookings = gpuCount
+      ? await db.reservation.findMany({
+          where: { clusterId: cl.id, startAt: { lt: to }, endAt: { gt: from } },
+          select: { startAt: true, endAt: true, status: true },
+        })
+      : [];
+    out.push({
+      id: cl.id,
+      name: cl.name,
+      error,
+      load,
+      gpu: gpuCount ? { capacityPerDay: gpuCount * 24, days: dailyGpuHours(bookings, from, 14) } : null,
     });
   }
   return out;

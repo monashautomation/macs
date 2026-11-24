@@ -13,9 +13,13 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, useAct, useClusters, useSession, type Vm } from "@/lib/client";
-import { Field, ImageBadges, Note, Pick } from "./common";
+import { Crumbs, Field, ImageBadges, Note, Pick } from "./common";
+import { OsIcon } from "./os-icon";
 
 const upTo = (options: number[], max: number) => options.filter((o) => o <= max);
+const CORES = [1, 2, 4, 8, 12, 16, 24, 32];
+const MEMORY = [1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072];
+const DISKS = [20, 40, 80, 100, 160, 250, 500];
 export function NewVm() {
   const clusters = useClusters();
   const me = useSession();
@@ -64,6 +68,32 @@ export function NewVm() {
     { quiet: true },
   );
 
+  // Three starting points that fit this cluster's per-VM limits.
+  const lim = cluster?.limits;
+  const fit = (options: number[], max: number, want: number) =>
+    upTo(options, max)
+      .filter((o) => o <= want)
+      .at(-1) ??
+    options[0] ??
+    want;
+  const presets = lim
+    ? [
+        { name: "Small", cores: 2, memory: 4096, disk: 40 },
+        { name: "Medium", cores: 4, memory: 8192, disk: 80 },
+        { name: "Large", cores: 8, memory: 16384, disk: 160 },
+      ]
+        .map((p) => ({
+          name: p.name,
+          cores: fit(CORES, lim.maxCores, p.cores),
+          memory: fit(MEMORY, lim.maxMemoryMb, p.memory),
+          disk: fit(DISKS, lim.maxDiskGb, p.disk),
+        }))
+        .filter(
+          (p, i, all) =>
+            all.findIndex((q) => q.cores === p.cores && q.memory === p.memory && q.disk === p.disk) === i,
+        )
+    : [];
+
   if (!clusters.data) return null;
   if (!cluster)
     return (
@@ -81,6 +111,7 @@ export function NewVm() {
         create.mutate();
       }}
     >
+      <Crumbs here="New VM" />
       <PageHeader title="New VM" />
       <SectionCard title="Where">
         <div className="grid gap-3 sm:grid-cols-2">
@@ -141,7 +172,11 @@ export function NewVm() {
                     key={i.id}
                     selected={i.id === image?.id}
                     onClick={() => setImageId(i.id)}
-                    title={i.name}
+                    title={
+                      <>
+                        <OsIcon image={i} /> {i.name}
+                      </>
+                    }
                   >
                     <ImageBadges image={i} />
                   </ChoiceCard>
@@ -161,6 +196,25 @@ export function NewVm() {
                 </Note>
               </div>
             ) : null}
+          </div>
+          <div>
+            <span className="mb-1.5 block text-sm font-medium">Size</span>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {presets.map((p) => (
+                <ChoiceCard
+                  key={p.name}
+                  selected={cores === p.cores && memory === p.memory && disk === p.disk}
+                  onClick={() => {
+                    setCores(p.cores);
+                    setMemory(p.memory);
+                    setDisk(p.disk);
+                  }}
+                  title={p.name}
+                  description={`${p.cores} vCPU · ${p.memory / 1024} GB memory · ${p.disk} GB disk`}
+                />
+              ))}
+            </div>
+            <p className="mt-1.5 text-xs text-muted-foreground">Or set each one yourself:</p>
           </div>
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="vCPUs">

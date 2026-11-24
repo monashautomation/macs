@@ -21,7 +21,7 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
-    "@monashautomation/ui": "github:monashautomation/ma-app-ui#f9cfa4731d72776e1b16359d500382ca09e0dfb5",
+    "@monashautomation/ui": "github:monashautomation/ma-app-ui#c7adf03642bf83885bf3c9b9a5b62dc2acde299b",
     "@novnc/novnc": "1.7.0",
     "@prisma/client": "^6.19.3",
     "@tanstack/react-query": "^5.108.3",
@@ -31,6 +31,8 @@
     "pino": "^10.4.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "recharts": "^3.11.1",
+    "simple-icons": "^16.38.1",
     "sonner": "^2.0.8",
     "undici": "^8.13.1",
     "ws": "^8.23.0",

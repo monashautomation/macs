@@ -15,7 +15,7 @@ import { PageHeader } from "@monashautomation/ui/page-header";
 import { SectionCard } from "@monashautomation/ui/section-card";
 import { StatusBadge } from "@monashautomation/ui/status-badge";
 import { cn } from "@monashautomation/ui/utils";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Cpu } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -33,6 +33,8 @@ import {
   useVms,
   type Vm,
 } from "@/lib/client";
+import { dailyGpuHours } from "@/lib/gpu-hours";
+import { ChartFigure, GpuHoursChart } from "./charts";
 import { Field, fmtDateTime, fmtTime, Note, Pick } from "./common";
 
 const DAY = 86_400_000;
@@ -68,7 +70,11 @@ function DeviceCard({
   );
   return (
     <SectionCard
-      title={gpu.id}
+      title={
+        <>
+          <Cpu className="size-4 text-muted-foreground" aria-hidden /> {gpu.id}
+        </>
+      }
       actions={<StatusBadge tone={h ? "info" : "success"}>{h ? "in use" : "free"}</StatusBadge>}
     >
       <p className="-mt-3 text-xs text-muted-foreground">
@@ -343,6 +349,9 @@ function BookingForm({
     },
     { quiet: true },
   );
+  const startDate = new Date(start);
+  const ends =
+    Number.isNaN(startDate.getTime()) || !hours ? null : new Date(startDate.getTime() + hours * 3_600_000);
   if (!eligible.length) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -376,7 +385,11 @@ function BookingForm({
           required
         />
       </Field>
-      <Field label="Hours" htmlFor="book-hours">
+      <Field
+        label="Hours"
+        htmlFor="book-hours"
+        hint={ends ? `Ends ${fmtDateTime(ends.toISOString())}` : undefined}
+      >
         <Input
           id="book-hours"
           type="number"
@@ -402,12 +415,50 @@ function BookingForm({
       <div className="space-y-2 sm:col-span-2 lg:col-span-5">
         {book.error ? <Note tone="danger">{book.error.message}</Note> : null}
         {done && !book.error ? <Note tone="success">{done}</Note> : null}
+        <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+          <span className="mr-1">Quick lengths:</span>
+          {[2, 4, 8, 12, 24, 48]
+            .filter((h) => h <= maxHours)
+            .map((h) => (
+              <Button
+                key={h}
+                type="button"
+                size="sm"
+                variant={hours === h ? "secondary" : "ghost"}
+                aria-pressed={hours === h}
+                onClick={() => setHours(h)}
+              >
+                {h} h
+              </Button>
+            ))}
+        </div>
         <p className="text-xs text-muted-foreground">
           Your VM is shut down and restarted with a GPU when the booking starts, and restarted without it when
           it ends. Save your work before both. Up to {maxHours} hours per booking.
         </p>
       </div>
     </form>
+  );
+}
+
+/** How full the pool is each day of the week on show. Same data as the schedule below. */
+function WeekUsage({ clusterId, from, capacity }: { clusterId: string; from: Date; capacity: number }) {
+  const to = new Date(from.getTime() + DAYS * DAY);
+  const q = useReservations(clusterId, from, to);
+  const days = useMemo(() => dailyGpuHours(q.data ?? [], from, DAYS), [q.data, from]);
+  const total = days.reduce((n, d) => n + d.booked, 0);
+  const busiest = days.reduce((a, b) => (b.booked > a.booked ? b : a), days[0] ?? { day: "", booked: 0 });
+  return (
+    <ChartFigure
+      title={`Week of ${from.toLocaleDateString(undefined, { day: "numeric", month: "short" })}`}
+      summary={
+        total
+          ? `${Math.round(total)} of ${capacity * DAYS} h this week · busiest ${new Date(busiest.day).toLocaleDateString(undefined, { weekday: "long" })}`
+          : "nothing booked this week"
+      }
+    >
+      <GpuHoursChart days={days} capacity={capacity} />
+    </ChartFigure>
   );
 }
 
@@ -476,6 +527,9 @@ export function Gpus({ admin = false }: { admin?: boolean }) {
             preselect={preselect}
             primary={!admin}
           />
+        </SectionCard>
+        <SectionCard title="GPU hours booked per day">
+          <WeekUsage clusterId={cluster.clusterId} from={from} capacity={cluster.devices.length * 24} />
         </SectionCard>
         <SectionCard
           title="Schedule"

@@ -11,6 +11,7 @@ import {
   ProxmoxError,
   type PveBackup,
   type PveConfig,
+  type Timeframe,
 } from "./types";
 
 interface Guest {
@@ -394,6 +395,47 @@ export class MockProxmox implements ProxmoxDriver {
       return r.action === "ACCEPT";
     }
     return (fw.options.policy_in ?? "DROP") === "ACCEPT";
+  }
+
+  // -- usage history ----------------------------------------------------
+
+  /** Plausible, repeatable curves: the same VM draws the same shape every time. */
+  private series(seed: number, timeframe: Timeframe, since = 0) {
+    const [step, count] = { hour: [60, 60], day: [1800, 48], week: [3600 * 3, 56] }[timeframe] as [
+      number,
+      number,
+    ];
+    const end = Math.floor(Date.now() / 1000 / step) * step;
+    const wave = (t: number, k: number) => 0.5 + 0.5 * Math.sin((t / step + seed * 7) / k);
+    return Array.from({ length: count }, (_, i) => end - (count - 1 - i) * step)
+      .filter((time) => time >= since)
+      .map((time) => ({ time, a: wave(time, 5), b: wave(time, 11), c: wave(time, 3) }));
+  }
+
+  async vmMetrics(node: string, vmid: number, timeframe: Timeframe) {
+    const g = this.get(node, vmid);
+    if (g.status !== "running") return [];
+    const maxmem = Number(g.config.memory ?? 0) * 1024 * 1024;
+    return this.series(vmid, timeframe, Math.floor(g.started / 1000)).map(({ time, a, b, c }) => ({
+      time,
+      cpu: 0.05 + 0.55 * a * b,
+      mem: maxmem * (0.3 + 0.4 * b),
+      maxmem,
+      netin: 40_000 + 900_000 * c * a,
+      netout: 15_000 + 300_000 * c * b,
+    }));
+  }
+
+  async nodeMetrics(node: string, timeframe: Timeframe) {
+    const index = this.nodeNames.indexOf(node);
+    if (index < 0) throw new ProxmoxError(`no such node ${node}`);
+    const maxmem = 256 * 1024 ** 3;
+    return this.series(index + 1, timeframe).map(({ time, a, b }) => ({
+      time,
+      cpu: 0.04 + 0.3 * a * b,
+      mem: maxmem * (0.15 + 0.25 * b),
+      maxmem,
+    }));
   }
 
   // -- console -----------------------------------------------------------

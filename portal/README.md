@@ -27,6 +27,8 @@ follows the platform app standard (central-platform-argocd `docs/standards/app-s
 - **Image library** of prepared templates (flagged _GPU-ready_ when NVIDIA
   drivers are baked in) and install ISOs, curated in the app.
 - **Console** in the browser (noVNC), plus SSH / RDP / Moonlight details.
+- **Usage at a glance.** CPU, memory and network history on each VM, cluster
+  load and GPU-hours booked per day for Systems & Infra, all read from Proxmox.
 - **Backups** to Proxmox Backup Server: back up, roll back, archive, restore.
 
 ## Local development

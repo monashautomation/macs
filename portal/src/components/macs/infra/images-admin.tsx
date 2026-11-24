@@ -22,6 +22,7 @@ import { useState } from "react";
 import { useConfirm } from "@/components/providers";
 import { type AdminImage, type AdminImages, api, useAct, useClusters } from "@/lib/client";
 import { Field, fmtSize, Muted, Note, Pick } from "../common";
+import { OsIcon } from "../os-icon";
 
 type Os = "linux" | "windows" | "other";
 interface Draft {
@@ -259,6 +260,7 @@ export function InfraImages() {
                   key={i.dbId}
                   className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border py-2.5 last:border-0"
                 >
+                  <OsIcon image={i} />
                   <span className={cn("font-semibold", !i.enabled && "text-muted-foreground line-through")}>
                     {i.name}
                   </span>

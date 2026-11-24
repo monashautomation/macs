@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useClusters } from "@/lib/client";
 import { ImageBadges } from "./common";
+import { OsIcon } from "./os-icon";
 
 type Filter = "all" | "gpu" | "template" | "iso";
 
@@ -50,7 +51,15 @@ export function Images() {
       {rows.length ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {rows.map(({ image, cluster }) => (
-            <SectionCard key={`${cluster.id}/${image.id}`} title={image.name} className="h-full">
+            <SectionCard
+              key={`${cluster.id}/${image.id}`}
+              title={
+                <>
+                  <OsIcon image={image} /> {image.name}
+                </>
+              }
+              className="h-full"
+            >
               <div className="flex h-full flex-col">
                 <p className="-mt-3 text-xs text-muted-foreground">{cluster.name}</p>
                 <div className="mt-2 flex flex-wrap gap-1.5">

@@ -38,6 +38,24 @@ export interface PveBackup {
 /** Firewall rule with Proxmox's field names; `pos` is set when read back. */
 export type FirewallRule = Record<string, string | number> & { pos?: number };
 
+export type Timeframe = "hour" | "day" | "week";
+/** One sample of a VM's usage history. cpu is a 0-1 fraction of its cores; the rest are bytes (per second for net). */
+export interface VmMetric {
+  time: number;
+  cpu: number;
+  mem: number;
+  maxmem: number;
+  netin: number;
+  netout: number;
+}
+/** One sample of a node's usage history. cpu is a 0-1 fraction; mem in bytes. */
+export interface NodeMetric {
+  time: number;
+  cpu: number;
+  mem: number;
+  maxmem: number;
+}
+
 /** A live VNC (RFB) byte stream to a VM's display. */
 export interface ConsoleStream {
   /** VNC password the viewer must present (Proxmox's one-time ticket). */
@@ -129,6 +147,9 @@ export interface ProxmoxDriver {
   firewallDeleteRule(node: string, vmid: number, pos: number): Promise<void>;
   /** VM firewalls only take effect when the datacenter firewall is on. */
   clusterFirewallEnabled(): Promise<boolean>;
+  /** Usage history (Proxmox RRD), oldest first. Samples with no data are dropped. */
+  vmMetrics(node: string, vmid: number, timeframe: Timeframe): Promise<VmMetric[]>;
+  nodeMetrics(node: string, timeframe: Timeframe): Promise<NodeMetric[]>;
   /** Open the VM's graphical console. The caller must close() it. */
   openConsole(node: string, vmid: number): Promise<ConsoleStream>;
 }

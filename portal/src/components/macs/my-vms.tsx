@@ -7,8 +7,9 @@ import { Meter } from "@monashautomation/ui/meter";
 import { PageHeader } from "@monashautomation/ui/page-header";
 import { SectionCard } from "@monashautomation/ui/section-card";
 import { Skeleton } from "@monashautomation/ui/skeleton";
+import { StatTile } from "@monashautomation/ui/stat-tile";
 import { StatusBadge } from "@monashautomation/ui/status-badge";
-import { Plus, Server } from "lucide-react";
+import { Cpu, Hourglass, MemoryStick, Plus, Power, Server } from "lucide-react";
 import Link from "next/link";
 import { type Cluster, useClusters, useVms } from "@/lib/client";
 import { VmTable } from "./common";
@@ -71,6 +72,9 @@ export function MyVms() {
   const vms = useVms();
   const clusters = useClusters();
   const none = clusters.data?.length === 0;
+  const mine = (vms.data ?? []).filter((v) => ["active", "provisioning", "pending"].includes(v.status));
+  const running = mine.filter((v) => v.power === "running").length;
+  const waiting = mine.filter((v) => v.status === "pending" || v.gpuAccess === "requested").length;
   return (
     <>
       <PageHeader
@@ -93,6 +97,35 @@ export function MyVms() {
         />
       ) : (
         <div className="space-y-6">
+          {mine.length ? (
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <StatTile
+                icon={<Power aria-hidden />}
+                label="Running"
+                value={running}
+                detail={`of ${mine.length} VM${mine.length === 1 ? "" : "s"}`}
+              />
+              <StatTile
+                icon={<Cpu aria-hidden />}
+                label="vCPUs"
+                value={mine.reduce((n, v) => n + v.cores, 0)}
+                detail="allocated to you"
+              />
+              <StatTile
+                icon={<MemoryStick aria-hidden />}
+                label="Memory"
+                value={`${Math.round(mine.reduce((n, v) => n + v.memoryMb, 0) / 1024)} GB`}
+                detail="allocated to you"
+              />
+              <StatTile
+                icon={<Hourglass aria-hidden />}
+                label="Waiting for approval"
+                value={waiting}
+                tone={waiting ? "warning" : "default"}
+                detail={waiting ? "Systems & Infra have been asked" : "nothing pending"}
+              />
+            </div>
+          ) : null}
           <div className="grid gap-4 md:grid-cols-2">
             {clusters.data?.map((c) => <ClusterCard key={c.id} c={c} />) ?? <Skeleton className="h-32" />}
           </div>
@@ -100,7 +133,7 @@ export function MyVms() {
             <Skeleton className="h-40" />
           ) : vms.data?.length ? (
             <SectionCard>
-              <VmTable vms={vms.data} clusters={clusters.data ?? []} />
+              <VmTable vms={vms.data} clusters={clusters.data ?? []} actions />
             </SectionCard>
           ) : (
             <EmptyState

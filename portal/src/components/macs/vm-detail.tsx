@@ -14,14 +14,37 @@ import { EmptyState } from "@monashautomation/ui/empty-state";
 import { Input } from "@monashautomation/ui/input";
 import { SectionCard } from "@monashautomation/ui/section-card";
 import { StatusBadge } from "@monashautomation/ui/status-badge";
+import { Tabs, TabsList, TabsTrigger } from "@monashautomation/ui/tabs";
 import { Textarea } from "@monashautomation/ui/textarea";
-import { ExternalLink } from "lucide-react";
+import {
+  Activity,
+  Cpu,
+  DatabaseBackup,
+  ExternalLink,
+  Globe,
+  History,
+  Info,
+  Play,
+  Plug,
+  Power,
+  RotateCw,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useState } from "react";
 import { useConfirm } from "@/components/providers";
-import { api, type Connection, type VmDetail as Detail, useAct, useClusters, useVm } from "@/lib/client";
 import {
+  api,
+  type Connection,
+  type VmDetail as Detail,
+  useAct,
+  useClusters,
+  useVm,
+  useVmMetrics,
+} from "@/lib/client";
+import { ChartFigure, TimeChart } from "./charts";
+import {
+  Crumbs,
   Field,
   fmtDateTime,
   fmtGB,
@@ -34,6 +57,7 @@ import {
   ServiceAddress,
   VmStatus,
 } from "./common";
+import { OsIcon } from "./os-icon";
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -83,6 +107,75 @@ function ConnectionRow({ c, name }: { c: Connection; name: string }) {
   );
 }
 
+const SPANS = [
+  { value: "hour", label: "Last hour" },
+  { value: "day", label: "Last day" },
+  { value: "week", label: "Last week" },
+] as const;
+
+/** CPU, memory and network over time, from Proxmox. */
+function UsagePanel({ id }: { id: string }) {
+  const [span, setSpan] = useState<"hour" | "day" | "week">("hour");
+  const q = useVmMetrics(id, span, true);
+  const points = q.data?.points ?? [];
+  const last = points.at(-1);
+  const peak = (key: "cpu" | "memGb" | "netInKb") => Math.max(0, ...points.map((p) => p[key]));
+  return (
+    <SectionCard
+      title={
+        <>
+          <Activity className="size-4 text-muted-foreground" aria-hidden /> Usage
+        </>
+      }
+      actions={
+        <Tabs value={span} onValueChange={(v) => setSpan(v as typeof span)}>
+          <TabsList>
+            {SPANS.map((s) => (
+              <TabsTrigger key={s.value} value={s.value}>
+                {s.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      }
+    >
+      {points.length < 2 || !last ? (
+        <Muted>
+          {q.isLoading
+            ? "Loading…"
+            : "Not enough history yet. Usage appears a few minutes after the VM starts."}
+        </Muted>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-3">
+          <ChartFigure title="CPU" summary={`now ${last.cpu}% · peak ${peak("cpu")}%`}>
+            <TimeChart data={points} series={[{ key: "cpu", label: "CPU" }]} unit="%" max={100} span={span} />
+          </ChartFigure>
+          <ChartFigure title="Memory" summary={`now ${last.memGb} of ${last.maxMemGb} GB`}>
+            <TimeChart
+              data={points}
+              series={[{ key: "memGb", label: "Memory used" }]}
+              unit=" GB"
+              max={last.maxMemGb}
+              span={span}
+            />
+          </ChartFigure>
+          <ChartFigure title="Network" summary={`now ${last.netInKb} in · ${last.netOutKb} out KB/s`}>
+            <TimeChart
+              data={points}
+              series={[
+                { key: "netInKb", label: "In" },
+                { key: "netOutKb", label: "Out" },
+              ]}
+              unit=" KB/s"
+              span={span}
+            />
+          </ChartFigure>
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
 function ServicesPanel({ vm, approval, max }: { vm: Detail; approval: boolean; max: number }) {
   const confirm = useConfirm();
   const blank = { name: "", port: "", kind: "http", description: "" };
@@ -108,7 +201,11 @@ function ServicesPanel({ vm, approval, max }: { vm: Detail; approval: boolean; m
   const remove = useAct((id: string) => api(`/services/${id}`, { method: "DELETE" }));
   return (
     <SectionCard
-      title="Public services"
+      title={
+        <>
+          <Globe className="size-4 text-muted-foreground" aria-hidden /> Public services
+        </>
+      }
       actions={
         <Button
           variant="outline"
@@ -276,23 +373,25 @@ export function VmDetail({ id }: { id: string }) {
 
   return (
     <div className="space-y-4">
+      <Crumbs here={vm.name} />
       <div className="flex flex-wrap items-center gap-3">
+        <OsIcon image={vm.image} className="size-7" />
         <h1 className="text-2xl font-bold tracking-tight">{vm.name}</h1>
         <VmStatus vm={vm} />
         {vm.gpu ? <StatusBadge tone="success">{vm.gpu} attached</StatusBadge> : null}
         <div className="ml-auto flex flex-wrap gap-2">
           {active && !running ? (
             <Button variant="outline" disabled={!idle} onClick={() => power("start")}>
-              Start
+              <Play aria-hidden /> Start
             </Button>
           ) : null}
           {active && running ? (
             <>
               <Button variant="outline" disabled={!idle} onClick={() => power("reboot")}>
-                Reboot
+                <RotateCw aria-hidden /> Reboot
               </Button>
               <Button variant="outline" disabled={!idle} onClick={() => power("shutdown")}>
-                Shut down
+                <Power aria-hidden /> Shut down
               </Button>
               <Button
                 variant="danger"
@@ -330,7 +429,13 @@ export function VmDetail({ id }: { id: string }) {
         </Note>
       ) : null}
 
-      <SectionCard title="Details">
+      <SectionCard
+        title={
+          <>
+            <Info className="size-4 text-muted-foreground" aria-hidden /> Details
+          </>
+        }
+      >
         <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <Fact label="Cluster">{cluster?.name ?? vm.clusterId}</Fact>
           <Fact label="Node">{vm.node ?? "—"}</Fact>
@@ -347,9 +452,15 @@ export function VmDetail({ id }: { id: string }) {
         </dl>
       </SectionCard>
 
+      {active && running ? <UsagePanel id={vm.id} /> : null}
+
       {active ? (
         <SectionCard
-          title="Connect"
+          title={
+            <>
+              <Plug className="size-4 text-muted-foreground" aria-hidden /> Connect
+            </>
+          }
           actions={
             running ? (
               <Button asChild>
@@ -399,7 +510,11 @@ export function VmDetail({ id }: { id: string }) {
 
       {cluster?.hasGpus && vm.status !== "archived" ? (
         <SectionCard
-          title="GPU"
+          title={
+            <>
+              <Cpu className="size-4 text-muted-foreground" aria-hidden /> GPU
+            </>
+          }
           actions={
             vm.gpuAccess === "approved" && active ? (
               <Button asChild variant="outline">
@@ -488,7 +603,11 @@ export function VmDetail({ id }: { id: string }) {
 
       {cluster?.hasBackups && (active || vm.status === "archived") ? (
         <SectionCard
-          title="Backups"
+          title={
+            <>
+              <DatabaseBackup className="size-4 text-muted-foreground" aria-hidden /> Backups
+            </>
+          }
           actions={
             active ? (
               <>
@@ -564,7 +683,13 @@ export function VmDetail({ id }: { id: string }) {
       ) : null}
 
       {vm.jobs.length > 0 ? (
-        <SectionCard title="Recent activity">
+        <SectionCard
+          title={
+            <>
+              <History className="size-4 text-muted-foreground" aria-hidden /> Recent activity
+            </>
+          }
+        >
           <ul>
             {vm.jobs.map((j) => (
               <JobRow key={`${j.id}-${j.status}`} job={j} />

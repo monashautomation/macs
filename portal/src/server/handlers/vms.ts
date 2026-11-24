@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { canUse, hasGpus } from "@/server/config";
 import { core, type Log } from "@/server/core";
 import { HttpError, isAdmin, type Who } from "@/server/http";
-import { ProxmoxError } from "@/server/proxmox/types";
+import { ProxmoxError, type Timeframe } from "@/server/proxmox/types";
 import { archiveVm, backupVm, restoreVm } from "@/server/services/backups";
 import { getImage, imageOut } from "@/server/services/images";
 import { applyNetworkPolicy } from "@/server/services/network";
@@ -295,6 +295,35 @@ export async function vmDetail(who: Who, id: string) {
       notes: b.notes,
       sizeBytes: Number(b.sizeBytes),
       createdAt: b.createdAt.toISOString(),
+    })),
+  };
+}
+
+export const MetricsQuery = z.object({ timeframe: z.enum(["hour", "day", "week"]).default("hour") });
+
+/** CPU, memory and network history for a running VM (empty when it is not running). */
+export async function vmMetrics(who: Who, id: string, timeframe: Timeframe) {
+  const c = core();
+  const vm = await getVm(who, id);
+  if (vm.status !== "active" || vm.vmid === null) return { timeframe, points: [] };
+  const vmid = vm.vmid;
+  const live = (await c.liveVms(vm.clusterId)).get(vmid);
+  if (live?.status !== "running") return { timeframe, points: [] };
+  const points = await c.cached(
+    vm.clusterId,
+    `metrics:${vmid}:${timeframe}`,
+    () => c.driver(vm.clusterId).vmMetrics(live.node, vmid, timeframe),
+    30_000,
+  );
+  return {
+    timeframe,
+    points: points.map((p) => ({
+      time: p.time * 1000,
+      cpu: Math.round(p.cpu * 1000) / 10,
+      memGb: Math.round((p.mem / 1024 ** 3) * 100) / 100,
+      maxMemGb: Math.round((p.maxmem / 1024 ** 3) * 100) / 100,
+      netInKb: Math.round(p.netin / 1024),
+      netOutKb: Math.round(p.netout / 1024),
     })),
   };
 }

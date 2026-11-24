@@ -12,6 +12,8 @@ import {
   type PveConfig,
   type PveNode,
   type PveVm,
+  type Timeframe,
+  type VmMetric,
 } from "./types";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -300,6 +302,47 @@ export class ProxmoxClient implements ProxmoxDriver {
 
   async clusterFirewallEnabled() {
     return !!(await this.call<{ enable?: number } | null>("GET", "/cluster/firewall/options"))?.enable;
+  }
+
+  // -- usage history ----------------------------------------------------
+
+  async vmMetrics(node: string, vmid: number, timeframe: Timeframe): Promise<VmMetric[]> {
+    const rows = await this.call<Record<string, number | null>[]>(
+      "GET",
+      `/nodes/${node}/qemu/${vmid}/rrddata`,
+      {
+        timeframe,
+        cf: "AVERAGE",
+      },
+    );
+    // Proxmox pads the series with empty samples (no cpu) for time the VM was off.
+    return (rows ?? [])
+      .filter((r) => typeof r.time === "number" && typeof r.cpu === "number")
+      .map((r) => ({
+        time: Number(r.time),
+        cpu: Number(r.cpu ?? 0),
+        mem: Number(r.mem ?? 0),
+        maxmem: Number(r.maxmem ?? 0),
+        netin: Number(r.netin ?? 0),
+        netout: Number(r.netout ?? 0),
+      }))
+      .sort((a, b) => a.time - b.time);
+  }
+
+  async nodeMetrics(node: string, timeframe: Timeframe) {
+    const rows = await this.call<Record<string, number | null>[]>("GET", `/nodes/${node}/rrddata`, {
+      timeframe,
+      cf: "AVERAGE",
+    });
+    return (rows ?? [])
+      .filter((r) => typeof r.time === "number" && typeof r.cpu === "number")
+      .map((r) => ({
+        time: Number(r.time),
+        cpu: Number(r.cpu ?? 0),
+        mem: Number(r.memused ?? 0),
+        maxmem: Number(r.memtotal ?? 0),
+      }))
+      .sort((a, b) => a.time - b.time);
   }
 
   // -- console -----------------------------------------------------------
