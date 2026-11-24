@@ -78,6 +78,8 @@ clusters:
     limits: { max_cores: 4, max_memory_mb: 8192, max_disk_gb: 80 }
     quota: { max_vms: 3, max_cores: 8, max_memory_mb: 16384, max_disk_gb: 160 } # per user, 0 = unlimited
     iso_storage: local
+    setups: true # offer the ready-made setup library (one-click installs)
+    # default_image: ubuntu                # image setups install on; default: first Ubuntu/Debian template
     network:
       label: Homelab network
       description: VMs are isolated from each other. Reach yours over NetBird, and publish ports to share a service.

@@ -24,6 +24,7 @@ import {
   Globe,
   History,
   Info,
+  KeyRound,
   Play,
   Plug,
   Power,
@@ -31,12 +32,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useConfirm } from "@/components/providers";
 import {
   api,
   type Connection,
   type VmDetail as Detail,
+  forgetLogin,
+  recallLogin,
   useAct,
   useClusters,
   useVm,
@@ -68,7 +71,7 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function ConnectionRow({ c, name }: { c: Connection; name: string }) {
+function ConnectionRow({ c, name, hasKey }: { c: Connection; name: string; hasKey: boolean }) {
   const rdpFile = `full address:s:${c.host}:${c.port}\r\n${c.user ? `username:s:${c.user}\r\n` : ""}prompt for credentials:i:1\r\n`;
   return (
     <div>
@@ -77,7 +80,11 @@ function ConnectionRow({ c, name }: { c: Connection; name: string }) {
         <span className="text-xs text-muted-foreground">
           port {c.port}
           {c.user ? ` · user ${c.user}` : ""}
-          {c.kind === "ssh" ? " · with the SSH key you provided" : ""}
+          {c.kind === "ssh"
+            ? hasKey
+              ? " · with the SSH key you provided"
+              : " · no SSH key was set: sign in on the console and add one"
+            : ""}
         </span>
         {c.kind === "rdp" ? (
           <a
@@ -104,6 +111,82 @@ function ConnectionRow({ c, name }: { c: Connection; name: string }) {
         <p className="mt-1 text-xs text-muted-foreground">Also reachable at {c.hosts.slice(1).join(", ")}</p>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The generated login, shown once after a one-click or automatic deploy. It
+ * lives only in this browser tab; closing the notice forgets it.
+ */
+function FirstLogin({ vmId }: { vmId: string }) {
+  const [login, setLogin] = useState<{ user: string; password: string } | null>(null);
+  useEffect(() => setLogin(recallLogin(vmId)), [vmId]);
+  if (!login) return null;
+  return (
+    <SectionCard
+      title={
+        <>
+          <KeyRound className="size-4 text-muted-foreground" aria-hidden /> Your login for this VM
+        </>
+      }
+      actions={
+        <Button
+          variant="outline"
+          onClick={() => {
+            forgetLogin(vmId);
+            setLogin(null);
+          }}
+        >
+          I've saved it
+        </Button>
+      }
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <p className="mb-1 text-xs text-muted-foreground">User</p>
+          <CopyField value={login.user} label="Copy user name" />
+        </div>
+        <div>
+          <p className="mb-1 text-xs text-muted-foreground">Password</p>
+          <CopyField value={login.password} label="Copy password" />
+        </div>
+      </div>
+      <p className="mt-3 text-sm text-warning">
+        This password is shown only now and cannot be recovered. Use it to sign in on the console (and for
+        sudo); SSH uses your key if you have one saved.
+      </p>
+    </SectionCard>
+  );
+}
+
+function SetupStatus({ vm, onRetry }: { vm: Detail; onRetry: () => void }) {
+  const setup = vm.setup;
+  if (!setup) return null;
+  if (setup.status === "pending" || setup.status === "installing") {
+    return (
+      <Note>
+        Installing {setup.name}… this can take several minutes. The VM is already running; progress is under
+        Recent activity.
+      </Note>
+    );
+  }
+  if (setup.status === "failed") {
+    return (
+      <div className="flex flex-wrap items-center gap-3 rounded-md bg-danger-bg px-3 py-2 text-sm text-destructive">
+        <span className="flex-1">
+          {setup.name} did not finish installing. The VM itself is fine; the log under Recent activity says
+          why.
+        </span>
+        <Button variant="outline" size="sm" disabled={vm.busy || vm.power !== "running"} onClick={onRetry}>
+          <RotateCw aria-hidden /> Try again
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <Note tone="success">
+      {setup.name} is installed.{setup.afterInstall ? ` ${setup.afterInstall}` : ""}
+    </Note>
   );
 }
 
@@ -422,6 +505,8 @@ export function VmDetail({ id }: { id: string }) {
         <Note>Request rejected{vm.reviewNote ? `: ${vm.reviewNote}` : ""}</Note>
       ) : null}
       {vm.status === "error" ? <Note tone="danger">Provisioning failed: {vm.error}</Note> : null}
+      <FirstLogin vmId={vm.id} />
+      {vm.setup ? <SetupStatus vm={vm} onRetry={() => run(`/vms/${id}/setup`)} /> : null}
       {vm.status === "archived" ? (
         <Note>
           This VM is archived to the backup server and uses no cluster resources. Restore a backup below to
@@ -488,7 +573,7 @@ export function VmDetail({ id }: { id: string }) {
                   : "The console is the VM's own screen and keyboard in your browser. It works even before the network is up, so use it to fix a broken SSH or network setup."}
               </p>
               {vm.connections.map((c) => (
-                <ConnectionRow key={c.kind} c={c} name={vm.name} />
+                <ConnectionRow key={c.kind} c={c} name={vm.name} hasKey={vm.hasSshKey} />
               ))}
               {!vm.connections.length ? (
                 <p className="text-sm text-muted-foreground">

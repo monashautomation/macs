@@ -4,6 +4,7 @@ import { startConsoleServer } from "@/server/console-server";
 import { core } from "@/server/core";
 import { seedImages } from "@/server/services/images";
 import { runScheduler } from "@/server/services/schedule";
+import { seedSetups } from "@/server/services/setups";
 
 const globalForBoot = globalThis as unknown as { macsBooted?: boolean };
 
@@ -18,6 +19,7 @@ export async function boot() {
   const e = env();
   const c = core(); // loads and validates the cluster config: fail fast if it is wrong
   await seedImages(c.cfg);
+  await seedSetups();
   await c.recover();
   void runScheduler(c, e.SCHEDULER_INTERVAL_SECONDS);
   startConsoleServer(c, e.CONSOLE_WS_PORT, new URL(e.APP_URL).origin);

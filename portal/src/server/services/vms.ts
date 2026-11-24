@@ -78,7 +78,14 @@ export async function pickNode(core: Core, cluster: ClusterConfig, fallback: str
   return fallback;
 }
 
-async function fromTemplate(core: Core, cluster: ClusterConfig, vm: Vm, image: Image, log: Log) {
+async function fromTemplate(
+  core: Core,
+  cluster: ClusterConfig,
+  vm: Vm,
+  image: Image,
+  log: Log,
+  password?: string,
+) {
   const drv = core.driver(cluster.id);
   const templateVmid = image.vmid as number;
   const { node, vmid } = await core.withLock(`provision:${cluster.id}`, async () => {
@@ -101,6 +108,8 @@ async function fromTemplate(core: Core, cluster: ClusterConfig, vm: Vm, image: I
     // Proxmox wants this value URL-encoded on top of the form encoding.
     if (vm.sshPublicKey.trim()) params.sshkeys = encodeURIComponent(vm.sshPublicKey.trim());
   }
+  // First-login password for the console. Proxmox stores only its hash.
+  if (password && image.os === "linux") params.cipassword = password;
   if (image.cicustom) params.cicustom = image.cicustom;
   log(`configuring ${vm.cores} cores, ${vm.memoryMb} MB`);
   await drv.setConfig(node, vmid, params);
@@ -168,16 +177,14 @@ export async function provision(core: Core, vmId: string, log: Log): Promise<voi
   const cluster = core.cluster(vm.clusterId);
   const drv = core.driver(cluster.id);
   let image: Image | null = null;
+  const intent = core.takeIntent(vmId);
   try {
     image = await getImage(vm.clusterId, vm.imageSlug);
     if (!image) throw new ProxmoxError(`image ${vm.imageSlug} is no longer in the library`);
-    const { node, vmid } = await (image.kind === "iso" ? fromIso : fromTemplate)(
-      core,
-      cluster,
-      vm,
-      image,
-      log,
-    );
+    const { node, vmid } =
+      image.kind === "iso"
+        ? await fromIso(core, cluster, vm, image, log)
+        : await fromTemplate(core, cluster, vm, image, log, intent.password);
     await drv.setConfig(node, vmid, {
       tags: `macs;owner-${tagSafe(vm.owner.email.split("@")[0] ?? "")}`,
       description: `Managed by the MACS portal. Owner: ${vm.owner.name} (${vm.owner.email})`,
@@ -192,6 +199,11 @@ export async function provision(core: Core, vmId: string, log: Log): Promise<voi
   }
   await db.vm.update({ where: { id: vmId }, data: { status: "active", error: "" } });
   log(image.kind === "iso" ? "ready - open the console to run the installer" : "ready");
+  // The VM is usable from here; a setup that fails to install can be retried.
+  if (vm.setupSlug) {
+    const { installSetup } = await import("./setups");
+    await installSetup(core, vmId, log, intent.publish);
+  }
 }
 
 /** Live Proxmox record (node, status) for a portal VM, bypassing the cache. */

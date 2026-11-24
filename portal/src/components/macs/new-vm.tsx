@@ -9,10 +9,11 @@ import { Input } from "@monashautomation/ui/input";
 import { PageHeader } from "@monashautomation/ui/page-header";
 import { SectionCard } from "@monashautomation/ui/section-card";
 import { Textarea } from "@monashautomation/ui/textarea";
+import { Wrench, Zap } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, useAct, useClusters, useSession, type Vm } from "@/lib/client";
+import { api, type Created, rememberLogin, useAct, useClusters, useSession } from "@/lib/client";
 import { Crumbs, Field, ImageBadges, Note, Pick } from "./common";
 import { OsIcon } from "./os-icon";
 
@@ -27,6 +28,9 @@ export function NewVm() {
   const params = useSearchParams();
   const [clusterId, setClusterId] = useState(params.get("cluster") ?? "");
   const [imageId, setImageId] = useState(params.get("image") ?? "");
+  const [mode, setMode] = useState<"auto" | "manual">(params.get("mode") === "manual" ? "manual" : "auto");
+  const [setupId, setSetupId] = useState(params.get("setup") ?? "");
+  const [publish, setPublish] = useState(true);
   const [name, setName] = useState("");
   const [cores, setCores] = useState(2);
   const [memory, setMemory] = useState(4096);
@@ -36,7 +40,16 @@ export function NewVm() {
   const [why, setWhy] = useState("");
 
   const cluster = clusters.data?.find((c) => c.id === clusterId) ?? clusters.data?.[0];
-  const image = cluster?.images.find((i) => i.id === imageId) ?? cluster?.images[0];
+  // Automatic: prepared images the portal can sign you in to. Manual: installers you drive yourself.
+  const choices = (cluster?.images ?? []).filter((i) =>
+    mode === "manual" ? i.kind === "iso" : i.kind === "template",
+  );
+  const setup = mode === "auto" ? cluster?.setups.find((x) => x.id === setupId) : undefined;
+  const image =
+    choices.find((i) => i.id === imageId) ??
+    (setup ? choices.find((i) => i.id === cluster?.defaultImage) : undefined) ??
+    choices[0];
+  const setupFits = !setup || (image?.kind === "template" && image.os === "linux");
   const needsKey = image?.kind === "template" && image.os === "linux";
   const key = sshKey ?? me.data?.sshPublicKey ?? "";
   const gpuPossible = !!cluster?.hasGpus;
@@ -49,9 +62,17 @@ export function NewVm() {
     setDisk((v) => Math.min(v, cluster.limits.maxDiskGb));
   }, [cluster]);
 
+  // A setup has a minimum size: never let the form go below it.
+  useEffect(() => {
+    if (!setup) return;
+    setCores((v) => Math.max(v, setup.cores));
+    setMemory((v) => Math.max(v, setup.memoryMb));
+    setDisk((v) => Math.max(v, setup.diskGb));
+  }, [setup]);
+
   const create = useAct(
     () =>
-      api<Vm>("/vms", {
+      api<Created>("/vms", {
         method: "POST",
         body: {
           clusterId: cluster?.id,
@@ -63,8 +84,15 @@ export function NewVm() {
           sshPublicKey: needsKey ? key : "",
           wantsGpu: wantsGpu && gpuPossible,
           justification: why,
+          setupSlug: setup && setupFits ? setup.id : "",
+          publishPorts: !!setup && publish && !!cluster?.network.services,
+          // Self-service VMs also get a console password, shown once on the next page.
+          autoLogin: mode === "auto",
         },
-      }).then((vm) => router.push(`/vms/${vm.id}`)),
+      }).then((vm) => {
+        rememberLogin(vm);
+        router.push(`/vms/${vm.id}`);
+      }),
     { quiet: true },
   );
 
@@ -142,6 +170,43 @@ export function NewVm() {
         </div>
       </SectionCard>
 
+      <SectionCard title="How">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ChoiceCard
+            selected={mode === "auto"}
+            onClick={() => {
+              setMode("auto");
+              setImageId("");
+            }}
+            title={
+              <>
+                <Zap className="size-4" aria-hidden /> Automatic
+              </>
+            }
+            description="We set up the login and networking. It boots ready to sign in to, optionally with software installed."
+          />
+          <ChoiceCard
+            selected={mode === "manual"}
+            disabled={!cluster.images.some((i) => i.kind === "iso")}
+            onClick={() => {
+              setMode("manual");
+              setImageId("");
+              setSetupId("");
+            }}
+            title={
+              <>
+                <Wrench className="size-4" aria-hidden /> Manual install
+              </>
+            }
+            description={
+              cluster.images.some((i) => i.kind === "iso")
+                ? "Boot an installer on an empty disk and configure the user, password and network yourself from the console."
+                : "No installers are available on this cluster."
+            }
+          />
+        </div>
+      </SectionCard>
+
       <SectionCard title="What">
         <div className="space-y-4">
           <Field
@@ -165,9 +230,9 @@ export function NewVm() {
                 Browse the library
               </Link>
             </div>
-            {cluster.images.length ? (
+            {choices.length ? (
               <div className="grid max-h-72 gap-2 overflow-y-auto sm:grid-cols-2">
-                {cluster.images.map((i) => (
+                {choices.map((i) => (
                   <ChoiceCard
                     key={i.id}
                     selected={i.id === image?.id}
@@ -197,6 +262,52 @@ export function NewVm() {
               </div>
             ) : null}
           </div>
+          {mode === "auto" && cluster.setups.length ? (
+            <div className="space-y-2">
+              <Field
+                label="Install a ready-made setup (optional)"
+                hint={setup ? setup.description : "Leave on “Nothing” for a clean machine."}
+              >
+                <Pick
+                  value={setup?.id ?? "none"}
+                  onChange={(v) => setSetupId(v === "none" ? "" : v)}
+                  options={[
+                    { value: "none", label: "Nothing, just the operating system" },
+                    ...cluster.setups.map((x) => ({
+                      value: x.id,
+                      label: `${x.name}${x.category ? ` (${x.category})` : ""}`,
+                    })),
+                  ]}
+                />
+              </Field>
+              {setup && !setupFits ? (
+                <Note tone="warning">
+                  Setups install on a prepared Linux image. Pick one above, or choose “Nothing”.
+                </Note>
+              ) : null}
+              {setup && setup.ports.length && cluster.network.services ? (
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="publish-ports"
+                    className="mt-0.5"
+                    checked={publish}
+                    onCheckedChange={(v) => setPublish(v === true)}
+                  />
+                  <label htmlFor="publish-ports" className="text-sm">
+                    <span className="font-medium">Publish its address</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Opens port{setup.ports.length > 1 ? "s" : ""}{" "}
+                      {setup.ports.map((x) => x.port).join(", ")} so it is reachable over NetBird
+                      {cluster.network.serviceApproval === "required"
+                        ? " (after Systems & Infra approve)"
+                        : ""}
+                      .
+                    </span>
+                  </label>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <div>
             <span className="mb-1.5 block text-sm font-medium">Size</span>
             <div className="grid gap-2 sm:grid-cols-3">
@@ -256,6 +367,7 @@ export function NewVm() {
                 <>
                   You will sign in as <code>{image?.defaultUser || "the image's default user"}</code> with
                   this key. Remembered for next time.
+                  {!needsApproval ? " Optional here: you also get a password for the console." : ""}
                 </>
               }
             >
@@ -266,7 +378,7 @@ export function NewVm() {
                 value={key}
                 onChange={(e) => setSshKey(e.target.value)}
                 placeholder="ssh-ed25519 AAAA… you@laptop"
-                required
+                required={needsApproval}
               />
             </Field>
           ) : null}
@@ -323,7 +435,7 @@ export function NewVm() {
         <Button type="button" variant="ghost" onClick={() => router.push("/")}>
           Cancel
         </Button>
-        <Button type="submit" disabled={create.isPending || !image}>
+        <Button type="submit" disabled={create.isPending || !image || !setupFits}>
           {create.isPending ? "Submitting…" : needsApproval ? "Request VM" : "Create VM"}
         </Button>
       </div>

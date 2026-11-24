@@ -24,6 +24,12 @@ export class Core {
   private readonly cache = new Map<string, { at: number; value: unknown }>();
   private readonly locks = new Map<string, Promise<unknown>>();
   private readonly tasks = new Set<Promise<unknown>>();
+  /**
+   * Things a provisioning job needs that must never be stored: the generated
+   * first-login password, and whether to publish the setup's ports. Held only
+   * until the job picks them up.
+   */
+  private readonly intents = new Map<string, { password?: string; publish?: boolean }>();
   private readonly consoles = new Map<
     string,
     { userId: string; stream: ConsoleStream; timer: NodeJS.Timeout }
@@ -173,6 +179,16 @@ export class Core {
       where: { status: "provisioning" },
       data: { status: "error", error: "provisioning was interrupted by a restart" },
     });
+  }
+
+  setIntent(vmId: string, intent: { password?: string; publish?: boolean }) {
+    this.intents.set(vmId, intent);
+  }
+
+  takeIntent(vmId: string): { password?: string; publish?: boolean } {
+    const intent = this.intents.get(vmId) ?? {};
+    this.intents.delete(vmId);
+    return intent;
   }
 
   // -- consoles ------------------------------------------------------------

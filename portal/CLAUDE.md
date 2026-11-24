@@ -38,4 +38,6 @@ node scripts/mock-authentik.mjs   # dev-only sign-in; with MACS_CONFIG=./config.
 - GPU holders are always derived from live `hostpci` config, never stored.
 - Firewall rules the portal owns are marked `macs:`; never touch others.
 - Cluster config keys are snake_case (they mirror the YAML); everything else is camelCase.
+- Setup scripts run as root in members' VMs: only admin routes may read or write `Setup.script`, and member-facing output must never include it.
+- A generated VM password is returned once from create and passed to provisioning through `core.setIntent`; never write it to the database, a job log or the audit log.
 - Never point tests or `config.dev.yaml` at a real cluster.

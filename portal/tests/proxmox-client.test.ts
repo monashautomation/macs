@@ -110,6 +110,35 @@ describe("Proxmox client", () => {
     expect(await client.vmIps("pve1", 100)).toEqual([]);
   });
 
+  it("runs a script in the guest once the agent answers", async () => {
+    let pings = 0;
+    const polls = [
+      { exited: 0 },
+      { exited: 1, exitcode: 3, "out-data": "installing\n", "err-data": "E: failed\n" },
+    ];
+    const { client, seen } = make(token, (req) => {
+      if (req.path.endsWith("/agent/ping"))
+        return ++pings < 3
+          ? { status: 500, json: { message: "QEMU guest agent is not running" } }
+          : { json: { data: {} } };
+      if (req.path.endsWith("/agent/exec")) return { json: { data: { pid: 42 } } };
+      return { json: { data: polls.shift() } };
+    });
+    const result = await client.runInGuest("pve1", 100, "apt-get install -y nginx");
+    expect(result).toEqual({ exitCode: 3, output: "installing\nE: failed\n" });
+    expect(pings).toBe(3);
+    const exec = seen.find((r) => r.path.endsWith("/agent/exec"))!;
+    const form = new URLSearchParams(exec.body);
+    expect(form.getAll("command")).toEqual(["/bin/bash", "-s"]); // array parameter as repeated keys
+    expect(form.get("input-data")).toBe("apt-get install -y nginx");
+    expect(seen.at(-1)!.path).toBe("/api2/json/nodes/pve1/qemu/100/agent/exec-status?pid=42");
+
+    const dead = make(token, () => ({ status: 500, json: { message: "QEMU guest agent is not running" } }));
+    await expect(dead.client.runInGuest("pve1", 100, "true", { agentWaitMs: 0 })).rejects.toThrow(
+      /guest agent did not respond/,
+    );
+  });
+
   it("puts query parameters in the URL for GET and DELETE", async () => {
     const { client, seen } = make(token, () => ({ json: { data: [] } }));
     await client.backups("pve1", "pbs", 100);

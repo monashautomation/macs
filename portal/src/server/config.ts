@@ -118,6 +118,10 @@ const cluster = z
     backup_storage: z.string().default(""),
     /** Proxmox storage whose ISOs can be added to the image library. */
     iso_storage: z.string().default(""),
+    /** Offer the ready-made setup library (one-click installs) on this cluster. */
+    setups: z.boolean().default(false),
+    /** Image slug that one-click setups are installed on. Default: the first Debian/Ubuntu template in the library. */
+    default_image: z.string().default(""),
     network: network.default(() => network.parse({})),
     /** Per-VM ceilings. */
     limits: z

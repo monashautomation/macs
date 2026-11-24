@@ -1,3 +1,4 @@
+import type { Setup } from "@prisma/client";
 import { z } from "zod";
 import { env } from "@/env";
 import { db } from "@/lib/db";
@@ -9,6 +10,7 @@ import { archiveVm, backupVm, restoreVm } from "@/server/services/backups";
 import { getImage, imageOut } from "@/server/services/images";
 import { applyNetworkPolicy } from "@/server/services/network";
 import { bookingError } from "@/server/services/schedule";
+import { defaultImage, generatePassword, installSetup, setupOut } from "@/server/services/setups";
 import {
   destroyVm,
   locate,
@@ -79,6 +81,10 @@ export async function session(who: Who) {
 export async function listClusters(who: Who) {
   const c = core();
   const out = [];
+  const setups = await db.setup.findMany({
+    where: { enabled: true },
+    orderBy: [{ category: "asc" }, { name: "asc" }],
+  });
   for (const cl of c.cfg.clusters) {
     if (!canUse(cl, who)) continue;
     let nodes: Awaited<ReturnType<ReturnType<typeof c.driver>["nodes"]>> = [];
@@ -119,6 +125,8 @@ export async function listClusters(who: Who) {
         maxAdvanceDays: cl.gpu.max_advance_days,
       },
       images: images.map(imageOut),
+      setups: cl.setups ? setups.map(setupOut) : [],
+      defaultImage: defaultImage(cl, images)?.slug ?? null,
       network: {
         label: cl.network.label,
         description: cl.network.description,
@@ -163,9 +171,16 @@ export const VmCreate = z.object({
   sshPublicKey: z.string().max(8000).default(""),
   wantsGpu: z.boolean().default(false),
   justification: z.string().trim().max(2000).default(""),
+  /** Install this ready-made setup once the VM is up. */
+  setupSlug: z.string().default(""),
+  /** Publish the setup's ports as public services when it is installed. */
+  publishPorts: z.boolean().default(false),
+  /** Also set a generated console password (returned once). Self-service clusters only. */
+  autoLogin: z.boolean().default(false),
 });
 
-export async function createVm(who: Who, body: z.infer<typeof VmCreate>) {
+export async function createVm(who: Who, input: z.input<typeof VmCreate>) {
+  const body = VmCreate.parse(input);
   const c = core();
   const cluster = c.findCluster(body.clusterId);
   if (!cluster || !canUse(cluster, who)) throw new HttpError(404, "cluster not found");
@@ -181,7 +196,7 @@ export async function createVm(who: Who, body: z.infer<typeof VmCreate>) {
   if (image.kind === "iso") {
     key = ""; // nothing to inject a key into; the user runs the installer
   } else if (image.os === "linux") {
-    if (!key) throw new HttpError(422, "an SSH public key is required for Linux VMs");
+    if (!key && !body.autoLogin) throw new HttpError(422, "an SSH public key is required for Linux VMs");
     if (key.split("\n").some((line) => line.trim() && !SSH_KEY.test(line.trim()))) {
       throw new HttpError(422, "that does not look like an SSH public key");
     }
@@ -204,6 +219,31 @@ export async function createVm(who: Who, body: z.infer<typeof VmCreate>) {
   if (over) throw new HttpError(422, over);
 
   const selfService = cluster.approval === "none";
+  let setup: Setup | null = null;
+  if (body.setupSlug) {
+    setup = cluster.setups
+      ? await db.setup.findFirst({ where: { slug: body.setupSlug, enabled: true } })
+      : null;
+    if (!setup) throw new HttpError(422, "that setup is not available on this cluster");
+    if (image.kind !== "template" || image.os !== "linux") {
+      throw new HttpError(422, "setups install on a prepared Linux image, not an installer or Windows");
+    }
+    if (body.cores < setup.cores || body.memoryMb < setup.memoryMb || body.diskGb < setup.diskGb) {
+      throw new HttpError(
+        422,
+        `${setup.name} needs at least ${setup.cores} vCPU, ${setup.memoryMb / 1024} GB memory and ${setup.diskGb} GB disk`,
+      );
+    }
+  }
+  // The password exists only in memory until the provisioning job uses it, so
+  // it is only offered where provisioning starts straight away.
+  const password =
+    body.autoLogin && selfService && image.kind === "template" && image.os === "linux"
+      ? generatePassword()
+      : undefined;
+  if (!key && image.kind === "template" && image.os === "linux" && !password) {
+    throw new HttpError(422, "an SSH public key is required for Linux VMs");
+  }
   const vm = await db.vm.create({
     data: {
       clusterId: cluster.id,
@@ -218,6 +258,8 @@ export async function createVm(who: Who, body: z.infer<typeof VmCreate>) {
       status: selfService ? "provisioning" : "pending",
       // GPU access always needs infrastructure, even on self-service clusters.
       gpuAccess: wantsGpu ? "requested" : "none",
+      setupSlug: setup?.slug ?? "",
+      setupStatus: setup ? "pending" : "none",
     },
     include: withPeople,
   });
@@ -228,6 +270,7 @@ export async function createVm(who: Who, body: z.infer<typeof VmCreate>) {
       update: { sshPublicKey: key },
     });
   }
+  c.setIntent(vm.id, { password, publish: body.publishPorts });
   if (selfService) {
     await startJob("provision", vm, who, (log) => provision(c, vm.id, log));
   } else {
@@ -238,7 +281,81 @@ export async function createVm(who: Who, body: z.infer<typeof VmCreate>) {
       `${vm.cores}c/${vm.memoryMb}MB/${vm.diskGb}GB gpu=${wantsGpu}`,
     );
   }
-  return vmOut(vm, await liveView(c, cluster.id), selfService);
+  return {
+    ...vmOut(vm, await liveView(c, cluster.id), selfService),
+    // Shown to the owner once, now; it is not stored anywhere they can get it back from.
+    login: password ? { user: image.defaultUser, password } : null,
+  };
+}
+
+export const QuickDeploy = z.object({
+  clusterId: z.string(),
+  setupSlug: z.string().default(""),
+  imageSlug: z.string().default(""),
+});
+
+/**
+ * One click: pick the name, size, image and login for them. Works where VMs
+ * are self-service; approval clusters need the request form.
+ */
+export async function quickDeploy(who: Who, body: z.infer<typeof QuickDeploy>) {
+  const c = core();
+  const cluster = c.findCluster(body.clusterId);
+  if (!cluster || !canUse(cluster, who)) throw new HttpError(404, "cluster not found");
+  if (cluster.approval !== "none")
+    throw new HttpError(422, `${cluster.name} needs a request; use the New VM form`);
+  const images = await db.image.findMany({ where: { clusterId: cluster.id, enabled: true } });
+  const setup = body.setupSlug
+    ? await db.setup.findFirst({ where: { slug: body.setupSlug, enabled: true } })
+    : null;
+  if (body.setupSlug && (!setup || !cluster.setups))
+    throw new HttpError(422, "that setup is not available on this cluster");
+  const image = body.imageSlug
+    ? images.find((i) => i.slug === body.imageSlug)
+    : defaultImage(cluster, images);
+  if (!image) throw new HttpError(422, "no suitable image is in the library for this cluster");
+  if (image.kind === "iso") throw new HttpError(422, "installers are set up by hand; use the New VM form");
+
+  const lim = cluster.limits;
+  const size = { cores: setup?.cores ?? 2, memoryMb: setup?.memoryMb ?? 2048, diskGb: setup?.diskGb ?? 20 };
+  if (size.cores > lim.max_cores || size.memoryMb > lim.max_memory_mb || size.diskGb > lim.max_disk_gb) {
+    throw new HttpError(422, `${setup?.name ?? image.name} needs more than ${cluster.name} allows per VM`);
+  }
+  // A readable, unused hostname: "gitea", then "gitea-2", ...
+  const base = (setup?.slug ?? image.slug).replace(/[^a-z0-9-]/g, "-").slice(0, 30) || "vm";
+  const taken = new Set(
+    (
+      await db.vm.findMany({
+        where: { clusterId: cluster.id, status: { in: VM_LIVE } },
+        select: { name: true },
+      })
+    ).map((v) => v.name),
+  );
+  let name = base;
+  for (let n = 2; taken.has(name); n++) name = `${base}-${n}`;
+  const profile = await db.profile.findUnique({ where: { userId: who.id } });
+  return createVm(who, {
+    clusterId: cluster.id,
+    name,
+    imageSlug: image.slug,
+    ...size,
+    sshPublicKey: image.os === "linux" ? (profile?.sshPublicKey ?? "") : "",
+    wantsGpu: false,
+    justification: "",
+    setupSlug: setup?.slug ?? "",
+    publishPorts: !!setup && cluster.network.services,
+    autoLogin: true,
+  });
+}
+
+/** Run a VM's setup again after it failed. */
+export async function retrySetup(who: Who, id: string) {
+  const c = core();
+  const vm = await getVm(who, id);
+  if (vm.status !== "active" || !vm.setupSlug || vm.setupStatus !== "failed") {
+    throw new HttpError(409, "there is no failed setup to retry on this VM");
+  }
+  return { jobId: await startJob("setup", vm, who, (log) => installSetup(c, vm.id, log)) };
 }
 
 export async function vmDetail(who: Who, id: string) {
@@ -247,6 +364,7 @@ export async function vmDetail(who: Who, id: string) {
   const cluster = c.findCluster(vm.clusterId);
   const out = vmOut(vm, await liveView(c, vm.clusterId), await c.vmBusy(vm.id));
   const image = await getImage(vm.clusterId, vm.imageSlug);
+  const setup = vm.setupSlug ? await db.setup.findUnique({ where: { slug: vm.setupSlug } }) : null;
   let ips: string[] = [];
   if (out.power === "running" && out.node && vm.vmid !== null) {
     const { node } = out;
@@ -285,6 +403,8 @@ export async function vmDetail(who: Who, id: string) {
   return {
     ...out,
     image: image ? imageOut(image) : null,
+    hasSshKey: !!vm.sshPublicKey.trim(),
+    setup: setup ? { ...setupOut(setup), status: vm.setupStatus } : null,
     ips,
     connections: out.power === "running" ? connections(cluster, image, vm.name, ips) : [],
     services: services.map((s) => serviceOut(c, s, ips)),

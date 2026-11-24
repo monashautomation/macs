@@ -9,6 +9,7 @@ import { HttpError, type Who } from "@/server/http";
 import { MockProxmox } from "@/server/proxmox/mock";
 import { seedImages } from "@/server/services/images";
 import { tick } from "@/server/services/schedule";
+import { seedSetups } from "@/server/services/setups";
 
 export const hasDb = !!process.env.TEST_DATABASE_URL;
 export const KEY =
@@ -40,6 +41,7 @@ clusters:
     kind: homelab
     driver: mock
     approval: none
+    setups: true
     iso_storage: isos
     quota: { max_vms: 2, max_cores: 4 }
     limits: { max_cores: 4, max_memory_mb: 8192, max_disk_gb: 50 }
@@ -68,11 +70,12 @@ export class Portal {
 
   static async create() {
     await db.$executeRawUnsafe(
-      'TRUNCATE "audit","jobs","backups","reservations","services","images","vms","profiles","identity_groups","accounts","sessions","users" CASCADE',
+      'TRUNCATE "setups","audit","jobs","backups","reservations","services","images","vms","profiles","identity_groups","accounts","sessions","users" CASCADE',
     );
     const p = new Portal();
     setCoreForTests(p.core);
     await seedImages(p.cfg);
+    await seedSetups();
     const everyone: [string, string[]][] = [
       ["admin", ["admins"]],
       ["alice", ["members"]],

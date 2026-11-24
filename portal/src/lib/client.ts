@@ -11,6 +11,9 @@ type Out<F extends (...args: never[]) => unknown> = Awaited<ReturnType<F>>;
 export type Session = Out<typeof vms.session>;
 export type Cluster = Out<typeof vms.listClusters>[number];
 export type Image = Cluster["images"][number];
+export type Setup = Cluster["setups"][number];
+export type Created = Out<typeof vms.createVm>;
+export type AdminSetup = Out<typeof infra.adminSetups>[number];
 export type Vm = Out<typeof vms.listVms>[number];
 export type VmDetail = Out<typeof vms.vmDetail>;
 export type Job = VmDetail["jobs"][number];
@@ -108,3 +111,20 @@ export function useAct<TArgs = void, TOut = unknown>(
     },
   });
 }
+
+/**
+ * The generated first-login password is returned once, when the VM is created.
+ * Keep it for this browser tab only, so the VM page can show it until dismissed.
+ */
+const loginKey = (vmId: string) => `macs-login-${vmId}`;
+export function rememberLogin(created: Created) {
+  if (created.login) sessionStorage.setItem(loginKey(created.id), JSON.stringify(created.login));
+}
+export function recallLogin(vmId: string): { user: string; password: string } | null {
+  try {
+    return JSON.parse(sessionStorage.getItem(loginKey(vmId)) ?? "null");
+  } catch {
+    return null;
+  }
+}
+export const forgetLogin = (vmId: string) => sessionStorage.removeItem(loginKey(vmId));

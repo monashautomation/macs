@@ -56,6 +56,8 @@ export function vmOut(vm: VmRow, live: LiveView, busy: boolean) {
     name: vm.name,
     owner: toPublicUser(vm.owner),
     imageSlug: vm.imageSlug,
+    setupSlug: vm.setupSlug,
+    setupStatus: vm.setupStatus,
     cores: vm.cores,
     memoryMb: vm.memoryMb,
     diskGb: vm.diskGb,

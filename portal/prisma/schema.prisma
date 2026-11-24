@@ -131,6 +131,10 @@ model Vm {
   reviewedById  String?
   reviewedBy    User?    @relation("VmReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
   error         String   @default("")
+  /// Slug of the setup installed on it ("" = none).
+  setupSlug     String   @default("")
+  /// none | pending | installing | done | failed
+  setupStatus   String   @default("none")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -169,6 +173,31 @@ model Image {
 
   @@unique([clusterId, slug])
   @@map("images")
+}
+
+/// A ready-made setup: a script the portal runs as root inside a freshly
+/// deployed Linux VM (through the guest agent) to install something, with the
+/// size it needs and the ports it serves. Curated by Systems & Infra: these
+/// scripts run with full rights in people's VMs.
+model Setup {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String   @default("")
+  /// Free-text grouping shown in the library, e.g. "Containers", "Media".
+  category    String   @default("")
+  script      String
+  cores       Int      @default(2)
+  memoryMb    Int      @default(2048)
+  diskGb      Int      @default(20)
+  /// [{ name, port, protocol, scheme }]: offered as public services after install.
+  ports       Json     @default("[]")
+  /// Shown to the owner once it is installed ("Open http://… and create the admin account").
+  afterInstall String  @default("")
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@map("setups")
 }
 
 /// A port on a VM its owner has published beyond the isolation firewall.

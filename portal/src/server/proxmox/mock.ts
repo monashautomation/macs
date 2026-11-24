@@ -438,6 +438,30 @@ export class MockProxmox implements ProxmoxDriver {
     }));
   }
 
+  // -- guest agent --------------------------------------------------------
+
+  /** Scripts run in guests, for tests to inspect. */
+  guestRuns: { vmid: number; script: string }[] = [];
+  /** Test switches: VMIDs with no agent, and a marker that makes a script fail. */
+  noAgent = new Set<number>();
+  failScriptsContaining = "";
+
+  async runInGuest(node: string, vmid: number, script: string) {
+    const g = this.get(node, vmid);
+    if (g.status !== "running") throw new ProxmoxError(`VM ${vmid} is not running`);
+    if (this.noAgent.has(vmid)) {
+      throw new ProxmoxError(
+        "the VM's guest agent did not respond; is qemu-guest-agent installed in the image?",
+      );
+    }
+    await this.work();
+    this.guestRuns.push({ vmid, script });
+    if (this.failScriptsContaining && script.includes(this.failScriptsContaining)) {
+      return { exitCode: 1, output: "E: Unable to locate package\n" };
+    }
+    return { exitCode: 0, output: "setup finished\n" };
+  }
+
   // -- console -----------------------------------------------------------
 
   async openConsole(node: string, vmid: number): Promise<ConsoleStream> {

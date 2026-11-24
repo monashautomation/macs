@@ -24,6 +24,10 @@ follows the platform app standard (central-platform-argocd `docs/standards/app-s
   right even for VMs the portal does not manage. Infra can swap a GPU between
   VMs; approved users book GPU time and a scheduler attaches and detaches the
   card, migrating the VM to a node with a free GPU.
+- **One-click installs.** A library of ready-made setups (Docker, Gitea,
+  Jellyfin, a web server…) and clean operating systems: one click creates the
+  VM, sets up the login and networking, installs the software and publishes
+  its address. Or install from an ISO yourself, the normal way.
 - **Image library** of prepared templates (flagged _GPU-ready_ when NVIDIA
   drivers are baked in) and install ISOs, curated in the app.
 - **Console** in the browser (noVNC), plus SSH / RDP / Moonlight details.
@@ -169,6 +173,25 @@ start; after that it is curated under Infrastructure → Image library, which
 lists templates and ISOs found on the cluster. ISO installs create an empty
 UEFI/q35 VM booted from the installer.
 
+**One-click installs and setups.** On clusters with `setups: true` (and no
+approval step), the Library page deploys in one click. The portal picks the
+name and size, clones the default Linux image (`default_image`, else the first
+Ubuntu/Debian template), and through cloud-init sets DHCP networking, the login
+user, the person's saved SSH key if they have one, and a generated password. That
+password is shown once on the VM's page and never stored: it is held in memory
+only until the provisioning job hands it to Proxmox, which keeps a hash.
+
+A _setup_ is a bash script run as root inside the new VM through the QEMU guest
+agent once it has booted, so templates need `qemu-guest-agent` installed and the
+API token needs guest-agent rights. If the script fails the VM stays up and the
+owner can retry. Setups declare a minimum size and the ports they serve; on an
+isolated cluster those ports are published (or sent for approval). Systems &
+Infra manage the scripts under Infrastructure → Image library; members never see
+them. The nine built-ins are starting points and have not been run on real VMs.
+
+The manual path is unchanged: pick an installer under _Install it yourself_ and
+the VM boots the ISO on an empty disk for a normal install from the console.
+
 **Console.** The app asks Proxmox for a one-time VNC ticket and relays the
 stream to noVNC in the browser, so users need no Proxmox login or route to the
 nodes. Next.js route handlers cannot serve websockets, so the relay listens on
@@ -198,6 +221,8 @@ at the repo root and the ArgoCD source path is `portal/deploy/extra`.
 
 ## Known gaps
 
+- The built-in setup scripts and the guest-agent exec call are untested on
+  real VMs.
 - Not yet run against real Proxmox, Authentik or PBS: only the mock cluster,
   the mock OpenID provider and scripted Proxmox HTTP responses.
 - `deploy/` values and the image-build CI job are adapted from the template but

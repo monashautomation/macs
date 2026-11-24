@@ -59,7 +59,7 @@ export function Frame({
       active: !inInfra && at("/"),
     },
     {
-      label: "Images",
+      label: "Library",
       href: "/images",
       icon: <Disc3 className="size-4" aria-hidden />,
       active: at("/images"),

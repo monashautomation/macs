@@ -1,3 +1,4 @@
+import type { Setup } from "@prisma/client";
 import { z } from "zod";
 import { env } from "@/env";
 import { db } from "@/lib/db";
@@ -11,6 +12,7 @@ import { diskKey, diskSizeGb, findVm, ProxmoxError, type Timeframe } from "@/ser
 import { attachGpu, detachGpu, gpuState } from "@/server/services/gpus";
 import { adminImageOut, getImage } from "@/server/services/images";
 import { applyNetworkPolicy } from "@/server/services/network";
+import { SetupPort, setupOut } from "@/server/services/setups";
 import { provision, VM_LIVE } from "@/server/services/vms";
 import { busyVmIds, liveViews, serviceOut, vmOut } from "@/server/views";
 import { startJob } from "./vms";
@@ -410,6 +412,82 @@ export async function deleteImage(who: Who, id: string) {
   if (waiting) throw new HttpError(409, "a VM request is waiting on this image; hide it instead");
   await db.image.delete({ where: { id } });
   await core().audit(who.id, "remove-image", `${image.clusterId}/${image.slug}`);
+}
+
+// -- setup library -------------------------------------------------------
+
+export const SetupBody = z.object({
+  name: z.string().trim().min(1).max(64),
+  description: z.string().trim().max(1000).default(""),
+  category: z.string().trim().max(32).default(""),
+  script: z.string().min(1).max(20_000),
+  cores: z.number().int().min(1).max(64).default(2),
+  memoryMb: z.number().int().min(512).default(2048),
+  diskGb: z.number().int().min(8).default(20),
+  ports: z.array(SetupPort).max(8).default([]),
+  afterInstall: z.string().trim().max(1000).default(""),
+  enabled: z.boolean().default(true),
+});
+
+const adminSetupOut = (s: Setup, vmCount = 0) => ({
+  ...setupOut(s),
+  dbId: s.id,
+  script: s.script,
+  enabled: s.enabled,
+  vmCount,
+});
+
+/** Every setup, with its script. These run as root in people's VMs, so only infrastructure sees or edits them. */
+export async function adminSetups() {
+  const rows = await db.setup.findMany({ orderBy: [{ category: "asc" }, { name: "asc" }] });
+  const inUse = new Map(
+    (
+      await db.vm.groupBy({
+        by: ["setupSlug"],
+        where: { status: { in: VM_LIVE }, setupSlug: { not: "" } },
+        _count: true,
+      })
+    ).map((g) => [g.setupSlug, g._count]),
+  );
+  return rows.map((s) => adminSetupOut(s, inUse.get(s.slug) ?? 0));
+}
+
+export async function addSetup(who: Who, body: z.infer<typeof SetupBody>) {
+  const base =
+    body.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 30) || "setup";
+  let slug = base;
+  for (let n = 2; await db.setup.findUnique({ where: { slug } }); n++) slug = `${base}-${n}`;
+  const setup = await db.setup.create({ data: { ...body, slug } });
+  await core().audit(who.id, "add-setup", slug, body.name);
+  return adminSetupOut(setup);
+}
+
+export async function editSetup(who: Who, id: string, body: z.infer<typeof SetupBody>) {
+  const existing = await db.setup.findUnique({ where: { id } });
+  if (!existing) throw new HttpError(404, "setup not found");
+  const setup = await db.setup.update({ where: { id }, data: body });
+  await core().audit(
+    who.id,
+    "edit-setup",
+    setup.slug,
+    existing.script === body.script ? "" : "script changed",
+  );
+  return adminSetupOut(setup);
+}
+
+export async function deleteSetup(who: Who, id: string) {
+  const setup = await db.setup.findUnique({ where: { id } });
+  if (!setup) throw new HttpError(404, "setup not found");
+  const waiting = await db.vm.count({
+    where: { setupSlug: setup.slug, setupStatus: { in: ["pending", "installing"] } },
+  });
+  if (waiting) throw new HttpError(409, "a VM is installing this setup; hide it instead");
+  await db.setup.delete({ where: { id } });
+  await core().audit(who.id, "remove-setup", setup.slug);
 }
 
 // -- overview, people, audit ---------------------------------------------

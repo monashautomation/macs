@@ -59,6 +59,8 @@ clusters:
     storage: local-lvm
     connect_domain: netbird.selfhosted
     iso_storage: local
+    setups: true # offer the ready-made setup library (one-click installs)
+    # default_image: ubuntu                # image setups install on; default: first Ubuntu/Debian template
     network:
       label: Homelab network
       description: VMs are isolated from each other. Reach yours over NetBird, and publish ports to share a service.

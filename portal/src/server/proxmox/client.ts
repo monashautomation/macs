@@ -60,12 +60,18 @@ export class ProxmoxClient implements ProxmoxDriver {
     return this.ticket.headers;
   }
 
-  private async call<T = unknown>(method: string, path: string, params: Params = {}): Promise<T> {
+  private async call<T = unknown>(
+    method: string,
+    path: string,
+    params: Params | Record<string, Params[string] | string[]> = {},
+  ): Promise<T> {
     const headers = await this.auth();
     const form = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) {
       if (v === null || v === undefined) continue;
-      form.set(k, typeof v === "boolean" ? (v ? "1" : "0") : String(v));
+      // Array parameters (e.g. agent exec's command) are sent as repeated keys.
+      if (Array.isArray(v)) for (const item of v) form.append(k, item);
+      else form.set(k, typeof v === "boolean" ? (v ? "1" : "0") : String(v));
     }
     const inQuery = method === "GET" || method === "DELETE";
     const url = `${this.base}${path}${inQuery && form.size ? `?${form}` : ""}`;
@@ -343,6 +349,54 @@ export class ProxmoxClient implements ProxmoxDriver {
         maxmem: Number(r.memtotal ?? 0),
       }))
       .sort((a, b) => a.time - b.time);
+  }
+
+  // -- guest agent --------------------------------------------------------
+
+  async runInGuest(
+    node: string,
+    vmid: number,
+    script: string,
+    opts: { agentWaitMs?: number; timeoutMs?: number } = {},
+  ) {
+    const base = `/nodes/${node}/qemu/${vmid}/agent`;
+    // The agent starts some time after the VM does; ping until it answers.
+    const agentDeadline = Date.now() + (opts.agentWaitMs ?? 5 * 60_000);
+    for (;;) {
+      try {
+        await this.call("POST", `${base}/ping`);
+        break;
+      } catch (e) {
+        if (!(e instanceof ProxmoxError) || Date.now() > agentDeadline) {
+          throw new ProxmoxError(
+            "the VM's guest agent did not respond; is qemu-guest-agent installed in the image?",
+          );
+        }
+        await sleep(Math.max(this.pollMs, 1) * 2);
+      }
+    }
+    // The script goes in on stdin so it needs no quoting.
+    const { pid } = await this.call<{ pid: number }>("POST", `${base}/exec`, {
+      command: ["/bin/bash", "-s"],
+      "input-data": script,
+    });
+    const deadline = Date.now() + (opts.timeoutMs ?? 30 * 60_000);
+    for (;;) {
+      const st = await this.call<{
+        exited: number | boolean;
+        exitcode?: number;
+        "out-data"?: string;
+        "err-data"?: string;
+      }>("GET", `${base}/exec-status`, { pid });
+      if (st.exited) {
+        return {
+          exitCode: Number(st.exitcode ?? 0),
+          output: `${st["out-data"] ?? ""}${st["err-data"] ?? ""}`,
+        };
+      }
+      if (Date.now() > deadline) throw new ProxmoxError("the setup script did not finish in time");
+      await sleep(this.pollMs);
+    }
   }
 
   // -- console -----------------------------------------------------------

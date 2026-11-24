@@ -150,6 +150,18 @@ export interface ProxmoxDriver {
   /** Usage history (Proxmox RRD), oldest first. Samples with no data are dropped. */
   vmMetrics(node: string, vmid: number, timeframe: Timeframe): Promise<VmMetric[]>;
   nodeMetrics(node: string, timeframe: Timeframe): Promise<NodeMetric[]>;
+  /**
+   * Run a shell script as root inside the guest through the QEMU guest agent,
+   * waiting first for the agent to come up after boot. Resolves with the exit
+   * code and combined output; rejects if the agent never answers or the script
+   * outlives `timeoutMs`.
+   */
+  runInGuest(
+    node: string,
+    vmid: number,
+    script: string,
+    opts?: { agentWaitMs?: number; timeoutMs?: number },
+  ): Promise<{ exitCode: number; output: string }>;
   /** Open the VM's graphical console. The caller must close() it. */
   openConsole(node: string, vmid: number): Promise<ConsoleStream>;
 }

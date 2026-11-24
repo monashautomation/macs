@@ -23,6 +23,7 @@ import { useConfirm } from "@/components/providers";
 import { type AdminImage, type AdminImages, api, useAct, useClusters } from "@/lib/client";
 import { Field, fmtSize, Muted, Note, Pick } from "../common";
 import { OsIcon } from "../os-icon";
+import { SetupsAdmin } from "./setups-admin";
 
 type Os = "linux" | "windows" | "other";
 interface Draft {
@@ -374,6 +375,7 @@ export function InfraImages() {
             <Muted>Every ISO on the storage is listed.</Muted>
           )}
         </SectionCard>
+        <SetupsAdmin />
       </div>
       {draft ? (
         <Editor
