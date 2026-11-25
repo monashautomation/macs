@@ -57,6 +57,13 @@ const schema = z.object({
   CONSOLE_WS_URL: z.string().default(""),
   /** How often GPU bookings are started and ended. */
   SCHEDULER_INTERVAL_SECONDS: z.coerce.number().int().min(1).default(30),
+  /**
+   * Optional: notifications (VM approved, about to expire, GPU booking started...)
+   * are also POSTed here as JSON, e.g. to the Discord bot. See README.
+   */
+  NOTIFY_WEBHOOK_URL: z.union([z.literal(""), z.url()]).default(""),
+  /** Sent as "Authorization: Bearer <token>" with each notification. */
+  NOTIFY_WEBHOOK_TOKEN: z.string().default(""),
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error"]).default("info"),
 });
 

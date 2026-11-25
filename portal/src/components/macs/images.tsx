@@ -2,7 +2,17 @@
 
 import { Badge } from "@monashautomation/ui/badge";
 import { Button } from "@monashautomation/ui/button";
+import { CopyField } from "@monashautomation/ui/copy-field";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@monashautomation/ui/dialog";
 import { EmptyState } from "@monashautomation/ui/empty-state";
+import { Input } from "@monashautomation/ui/input";
 import { PageHeader } from "@monashautomation/ui/page-header";
 import { SectionCard } from "@monashautomation/ui/section-card";
 import {
@@ -13,6 +23,7 @@ import {
   Globe,
   HeartPulse,
   Home,
+  Network,
   Package,
   Wrench,
   Zap,
@@ -22,15 +33,17 @@ import { useRouter } from "next/navigation";
 import { type ReactNode, useState } from "react";
 import {
   api,
+  type Blueprint,
   type Cluster,
   type Created,
   type Image,
+  type LabCreated,
   rememberLogin,
   type Setup,
   useAct,
   useClusters,
 } from "@/lib/client";
-import { fmtGB, ImageBadges, Note } from "./common";
+import { Field, fmtGB, ImageBadges, Note } from "./common";
 import { OsIcon } from "./os-icon";
 
 const CATEGORY_ICONS: Record<string, ReactNode> = {
@@ -51,7 +64,95 @@ export function SetupIcon({ setup, className }: { setup: Pick<Setup, "category">
   );
 }
 
-type Filter = "all" | "setups" | "os" | "manual";
+type Filter = "all" | "setups" | "labs" | "os" | "manual";
+
+/** Name a lab, deploy it, and show the one-time login for its VMs. */
+function LabDialog({
+  pick,
+  onClose,
+}: {
+  pick: { blueprint: Blueprint; cluster: Cluster } | null;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [name, setName] = useState("");
+  const [made, setMade] = useState<LabCreated | null>(null);
+  const create = useAct(
+    () =>
+      api<LabCreated>("/labs", {
+        method: "POST",
+        body: { clusterId: pick?.cluster.id, blueprint: pick?.blueprint.id, name },
+      }).then((lab) => {
+        for (const vm of lab.vms) rememberLogin({ id: vm.id, login: lab.login });
+        setMade(lab);
+      }),
+    { quiet: true },
+  );
+  const close = () => {
+    setName("");
+    setMade(null);
+    create.reset();
+    onClose();
+  };
+  return (
+    <Dialog open={pick !== null} onOpenChange={(open) => !open && close()}>
+      <DialogContent>
+        {made ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Lab {made.name} is being created</DialogTitle>
+              <DialogDescription>
+                {made.vms.map((v) => v.name).join(", ")} will be ready in a few minutes. They share this
+                login, which is shown only now.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <p className="mb-1 text-xs text-muted-foreground">User</p>
+                <CopyField value={made.login.user} label="Copy user name" />
+              </div>
+              <div>
+                <p className="mb-1 text-xs text-muted-foreground">Password</p>
+                <CopyField value={made.login.password} label="Copy password" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button onClick={() => router.push("/")}>Go to my VMs</Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>Deploy {pick?.blueprint.name}</DialogTitle>
+              <DialogDescription>
+                {pick?.blueprint.members.length} VMs on {pick?.cluster.name}, named after the lab:{" "}
+                {pick?.blueprint.members.map((m) => `${name || "name"}-${m.role}`).join(", ")}.
+              </DialogDescription>
+            </DialogHeader>
+            <Field label="Lab name" htmlFor="lab-name" hint="Lowercase letters, digits and dashes.">
+              <Input
+                id="lab-name"
+                value={name}
+                onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))}
+                placeholder="demo"
+                maxLength={24}
+              />
+            </Field>
+            {create.error ? <Note tone="danger">{create.error.message}</Note> : null}
+            <DialogFooter>
+              <Button variant="ghost" onClick={close}>
+                Cancel
+              </Button>
+              <Button disabled={!name || create.isPending} onClick={() => create.mutate()}>
+                {create.isPending ? "Creating…" : "Deploy lab"}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 /**
  * Everything you can deploy. Three ways in, from least to most hands-on:
@@ -64,6 +165,7 @@ export function Images() {
   const [clusterId, setClusterId] = useState("all");
   const [filter, setFilter] = useState<Filter>("all");
   const [busy, setBusy] = useState("");
+  const [labPick, setLabPick] = useState<{ blueprint: Blueprint; cluster: Cluster } | null>(null);
   const deploy = useAct(
     (a: { key: string; clusterId: string; setupSlug?: string; imageSlug?: string }) =>
       api<Created>("/vms/quick", {
@@ -78,6 +180,7 @@ export function Images() {
   if (!clusters.data) return null;
   const shown = clusters.data.filter((c) => clusterId === "all" || c.id === clusterId);
   const setups = shown.flatMap((c) => c.setups.map((setup) => ({ setup, cluster: c })));
+  const labs = shown.flatMap((c) => c.labs.map((blueprint) => ({ blueprint, cluster: c })));
   const systems = shown.flatMap((c) =>
     c.images.filter((i) => i.kind === "template").map((image) => ({ image, cluster: c })),
   );
@@ -177,6 +280,7 @@ export function Images() {
         <span className="mx-2 w-px bg-border" />
         {chip(filter === "all", "Everything", () => setFilter("all"))}
         {chip(filter === "setups", "Ready-made setups", () => setFilter("setups"))}
+        {labs.length ? chip(filter === "labs", "Labs", () => setFilter("labs")) : null}
         {chip(filter === "os", "Operating systems", () => setFilter("os"))}
         {chip(filter === "manual", "Install it yourself", () => setFilter("manual"))}
       </div>
@@ -219,6 +323,35 @@ export function Images() {
         }),
       )}
       {section(
+        "labs",
+        "Labs",
+        "Several VMs deployed together. They can reach each other by name and share one login; everyone else's VMs still cannot reach them.",
+        labs.map(({ blueprint, cluster }) =>
+          card(
+            `lab/${cluster.id}/${blueprint.id}`,
+            <>
+              <span className="inline-flex shrink-0 text-muted-foreground [&_svg]:size-5">
+                <Network aria-hidden />
+              </span>{" "}
+              {blueprint.name}
+            </>,
+            cluster,
+            <>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <Badge variant="secondary">{blueprint.members.length} VMs</Badge>
+                <Badge variant="outline">
+                  {blueprint.cores} vCPU · {fmtGB(blueprint.memoryMb)} · {blueprint.diskGb} GB in total
+                </Badge>
+              </div>
+              <p className="mt-3 flex-1 text-sm text-muted-foreground">{blueprint.description}</p>
+            </>,
+            <Button variant="outline" onClick={() => setLabPick({ blueprint, cluster })}>
+              <Zap aria-hidden /> Deploy lab…
+            </Button>,
+          ),
+        ),
+      )}
+      {section(
         "os",
         "Operating systems",
         "A clean machine, ready to sign in to. One click where no approval is needed.",
@@ -254,6 +387,7 @@ export function Images() {
           ),
         ),
       )}
+      <LabDialog pick={labPick} onClose={() => setLabPick(null)} />
       {!setups.length && !systems.length && !installers.length ? (
         <EmptyState
           title="Nothing here yet"

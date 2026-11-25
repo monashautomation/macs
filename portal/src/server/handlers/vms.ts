@@ -2,12 +2,14 @@ import type { Setup } from "@prisma/client";
 import { z } from "zod";
 import { env } from "@/env";
 import { db } from "@/lib/db";
+import { toPublicUser } from "@/lib/public-user";
 import { canUse, hasGpus } from "@/server/config";
 import { core, type Log } from "@/server/core";
 import { HttpError, isAdmin, type Who } from "@/server/http";
 import { ProxmoxError, type Timeframe } from "@/server/proxmox/types";
 import { archiveVm, backupVm, restoreVm } from "@/server/services/backups";
 import { getImage, imageOut } from "@/server/services/images";
+import { BLUEPRINTS, blueprintOut } from "@/server/services/labs";
 import { applyNetworkPolicy } from "@/server/services/network";
 import { bookingError } from "@/server/services/schedule";
 import { defaultImage, generatePassword, installSetup, setupOut } from "@/server/services/setups";
@@ -32,19 +34,34 @@ import {
   vmOut,
 } from "@/server/views";
 
-const NAME = /^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$/;
-const SSH_KEY = /^(ssh-(ed25519|rsa|dss)|ecdsa-sha2-\S+|sk-\S+) [A-Za-z0-9+/=]+( .*)?$/;
+export const NAME = /^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$/;
+export const SSH_KEY = /^(ssh-(ed25519|rsa|dss)|ecdsa-sha2-\S+|sk-\S+) [A-Za-z0-9+/=]+( .*)?$/;
 const withPeople = { owner: true, reviewedBy: true } as const;
 
-/** The VM if the caller owns it (or is an admin); 404 otherwise so ids cannot be probed. */
-export async function getVm(who: Who, id: string) {
+/**
+ * The VM if the caller may act on it; 404 otherwise so ids cannot be probed.
+ *
+ * "own" (the default): its owner, or an admin. "use": also people the owner
+ * shared it with, who may look at it, power it and open its console, and
+ * nothing else. Every handler that changes the VM itself asks for "own".
+ */
+export async function getVm(who: Who, id: string, need: "own" | "use" = "own") {
+  const mine = { id, ownerId: who.id };
   const vm = await db.vm.findFirst({
-    where: isAdmin(who) ? { id } : { id, ownerId: who.id },
+    where: isAdmin(who)
+      ? { id }
+      : need === "use"
+        ? { OR: [mine, { id, shares: { some: { userId: who.id } } }] }
+        : mine,
     include: withPeople,
   });
   if (!vm) throw new HttpError(404, "VM not found");
   return vm;
 }
+
+/** How the caller relates to a VM they can see. */
+export const accessOf = (who: Who, vm: { ownerId: string }): "owner" | "admin" | "shared" =>
+  vm.ownerId === who.id ? "owner" : isAdmin(who) ? "admin" : "shared";
 
 /** Register and launch a background job for a VM; resolves to the job id. */
 export async function startJob(
@@ -72,6 +89,7 @@ export async function session(who: Who) {
     email: who.email,
     isAdmin: isAdmin(who),
     sshPublicKey: profile?.sshPublicKey ?? "",
+    unread: await db.notification.count({ where: { userId: who.id, readAt: null } }),
     consoleWsUrl:
       e.CONSOLE_WS_URL ||
       `${app.protocol === "https:" ? "wss" : "ws"}://${app.hostname}:${e.CONSOLE_WS_PORT}/console-ws`,
@@ -82,7 +100,7 @@ export async function listClusters(who: Who) {
   const c = core();
   const out = [];
   const setups = await db.setup.findMany({
-    where: { enabled: true },
+    where: { enabled: true, listed: true },
     orderBy: [{ category: "asc" }, { name: "asc" }],
   });
   for (const cl of c.cfg.clusters) {
@@ -126,6 +144,9 @@ export async function listClusters(who: Who) {
       },
       images: images.map(imageOut),
       setups: cl.setups ? setups.map(setupOut) : [],
+      labs: cl.labs && cl.approval === "none" ? BLUEPRINTS.map(blueprintOut) : [],
+      lifetimeDays: cl.lifetime_days,
+      maxSnapshots: cl.max_snapshots,
       defaultImage: defaultImage(cl, images)?.slug ?? null,
       network: {
         label: cl.network.label,
@@ -147,7 +168,10 @@ export async function listClusters(who: Who) {
 export async function listVms(who: Who, scope: "mine" | "all") {
   if (scope === "all" && !isAdmin(who)) throw new HttpError(403, "Forbidden");
   const rows = await db.vm.findMany({
-    where: { status: { not: "deleted" }, ...(scope === "mine" ? { ownerId: who.id } : {}) },
+    where: {
+      status: { not: "deleted" },
+      ...(scope === "mine" ? { OR: [{ ownerId: who.id }, { shares: { some: { userId: who.id } } }] } : {}),
+    },
     include: withPeople,
     orderBy: { createdAt: "desc" },
   });
@@ -158,7 +182,10 @@ export async function listVms(who: Who, scope: "mine" | "all") {
     ),
     busyVmIds(rows.map((v) => v.id)),
   ]);
-  return rows.map((v) => vmOut(v, lives.get(v.clusterId)!, busy.has(v.id)));
+  return rows.map((v) => ({
+    ...vmOut(v, lives.get(v.clusterId)!, busy.has(v.id)),
+    access: accessOf(who, v),
+  }));
 }
 
 export const VmCreate = z.object({
@@ -222,7 +249,7 @@ export async function createVm(who: Who, input: z.input<typeof VmCreate>) {
   let setup: Setup | null = null;
   if (body.setupSlug) {
     setup = cluster.setups
-      ? await db.setup.findFirst({ where: { slug: body.setupSlug, enabled: true } })
+      ? await db.setup.findFirst({ where: { slug: body.setupSlug, enabled: true, listed: true } })
       : null;
     if (!setup) throw new HttpError(422, "that setup is not available on this cluster");
     if (image.kind !== "template" || image.os !== "linux") {
@@ -306,7 +333,7 @@ export async function quickDeploy(who: Who, body: z.infer<typeof QuickDeploy>) {
     throw new HttpError(422, `${cluster.name} needs a request; use the New VM form`);
   const images = await db.image.findMany({ where: { clusterId: cluster.id, enabled: true } });
   const setup = body.setupSlug
-    ? await db.setup.findFirst({ where: { slug: body.setupSlug, enabled: true } })
+    ? await db.setup.findFirst({ where: { slug: body.setupSlug, enabled: true, listed: true } })
     : null;
   if (body.setupSlug && (!setup || !cluster.setups))
     throw new HttpError(422, "that setup is not available on this cluster");
@@ -360,8 +387,9 @@ export async function retrySetup(who: Who, id: string) {
 
 export async function vmDetail(who: Who, id: string) {
   const c = core();
-  const vm = await getVm(who, id);
+  const vm = await getVm(who, id, "use");
   const cluster = c.findCluster(vm.clusterId);
+  const access = accessOf(who, vm);
   const out = vmOut(vm, await liveView(c, vm.clusterId), await c.vmBusy(vm.id));
   const image = await getImage(vm.clusterId, vm.imageSlug);
   const setup = vm.setupSlug ? await db.setup.findUnique({ where: { slug: vm.setupSlug } }) : null;
@@ -380,7 +408,10 @@ export async function vmDetail(who: Who, id: string) {
       if (!(e instanceof ProxmoxError)) throw e;
     }
   }
-  const [services, jobs, reservations, backups] = await Promise.all([
+  const lab = vm.labId ? await db.lab.findUnique({ where: { id: vm.labId } }) : null;
+  const blueprint = lab ? BLUEPRINTS.find((b) => b.id === lab.blueprint) : undefined;
+  const [shares, services, jobs, reservations, backups] = await Promise.all([
+    db.vmShare.findMany({ where: { vmId: vm.id }, include: { user: true }, orderBy: { createdAt: "asc" } }),
     db.service.findMany({
       where: { vmId: vm.id },
       include: { vm: { include: { owner: true } } },
@@ -402,6 +433,27 @@ export async function vmDetail(who: Who, id: string) {
   ]);
   return {
     ...out,
+    access,
+    sharedWith: shares.map((s) => toPublicUser(s.user)),
+    lab: lab
+      ? {
+          id: lab.id,
+          name: lab.name,
+          blueprint: blueprint?.name ?? lab.blueprint,
+          role: vm.labRole,
+          steps: (blueprint?.steps ?? []).map((s) => s.replaceAll("{name}", lab.name)),
+        }
+      : null,
+    lifetimeDays: cluster?.lifetime_days ?? 0,
+    maxSnapshots: cluster?.max_snapshots ?? 0,
+    canResize: cluster?.approval === "none" || isAdmin(who),
+    limits: cluster
+      ? {
+          maxCores: cluster.limits.max_cores,
+          maxMemoryMb: cluster.limits.max_memory_mb,
+          maxDiskGb: cluster.limits.max_disk_gb,
+        }
+      : null,
     image: image ? imageOut(image) : null,
     hasSshKey: !!vm.sshPublicKey.trim(),
     setup: setup ? { ...setupOut(setup), status: vm.setupStatus } : null,
@@ -424,7 +476,7 @@ export const MetricsQuery = z.object({ timeframe: z.enum(["hour", "day", "week"]
 /** CPU, memory and network history for a running VM (empty when it is not running). */
 export async function vmMetrics(who: Who, id: string, timeframe: Timeframe) {
   const c = core();
-  const vm = await getVm(who, id);
+  const vm = await getVm(who, id, "use");
   if (vm.status !== "active" || vm.vmid === null) return { timeframe, points: [] };
   const vmid = vm.vmid;
   const live = (await c.liveVms(vm.clusterId)).get(vmid);
@@ -451,8 +503,10 @@ export async function vmMetrics(who: Who, id: string, timeframe: Timeframe) {
 export const Power = z.object({ action: z.enum(["start", "shutdown", "stop", "reboot"]) });
 
 export async function powerVm(who: Who, id: string, action: PowerAction) {
-  const vm = await getVm(who, id);
+  const vm = await getVm(who, id, "use");
   if (vm.status !== "active") throw new HttpError(409, "the VM is not active");
+  if (vm.expired && action !== "shutdown" && action !== "stop")
+    throw new HttpError(409, `${vm.name} has expired; extend it to start it again`);
   return { jobId: await startJob(action, vm, who, (log) => power(core(), vm.id, action, log)) };
 }
 
@@ -500,7 +554,7 @@ export async function requestGpuAccess(who: Who, id: string, body: z.infer<typeo
 /** Open the VM's screen. Returns a one-time token for the console websocket. */
 export async function openConsole(who: Who, id: string) {
   const c = core();
-  const vm = await getVm(who, id);
+  const vm = await getVm(who, id, "use");
   if (vm.status !== "active" || vm.vmid === null) throw new HttpError(409, "the VM is not active");
   const live = await locate(c, vm);
   if (live?.status !== "running") throw new HttpError(409, "start the VM to open its console");
@@ -764,7 +818,15 @@ export async function cancelReservation(who: Who, id: string) {
 export async function listJobs(who: Who, scope: "mine" | "all", limit: number) {
   const all = scope === "all" && isAdmin(who);
   const rows = await db.job.findMany({
-    where: all ? {} : { OR: [{ userId: who.id }, { vm: { ownerId: who.id } }] },
+    where: all
+      ? {}
+      : {
+          OR: [
+            { userId: who.id },
+            { vm: { ownerId: who.id } },
+            { vm: { shares: { some: { userId: who.id } } } },
+          ],
+        },
     include: { vm: true, user: true },
     orderBy: { createdAt: "desc" },
     take: Math.min(limit, 200),

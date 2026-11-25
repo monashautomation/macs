@@ -2,8 +2,10 @@ import type { Vm } from "@prisma/client";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import type { ClusterConfig } from "@/server/config";
-import { Busy, type Core } from "@/server/core";
+import type { Core } from "@/server/core";
 import { attachGpu, detachGpu } from "./gpus";
+import { housekeeping } from "./housekeeping";
+import { notify } from "./notify";
 
 /** GPU bookings: validation and the loop that attaches/detaches GPUs on time. */
 
@@ -43,15 +45,6 @@ export async function bookingError(
   return null;
 }
 
-async function tryJob(core: Core, kind: string, vm: { id: string; name: string }): Promise<string | null> {
-  try {
-    return await core.createJob(kind, vm, null);
-  } catch (e) {
-    if (e instanceof Busy) return null; // retry next tick
-    throw e;
-  }
-}
-
 async function finish(core: Core, resId: string) {
   const r = await db.reservation.findUniqueOrThrow({ where: { id: resId }, include: { vm: true } });
   const { vm } = r;
@@ -71,7 +64,7 @@ async function finish(core: Core, resId: string) {
     await db.reservation.update({ where: { id: r.id }, data: { status: "completed" } });
     return;
   }
-  const jobId = await tryJob(core, "gpu-release", vm);
+  const jobId = await core.tryJob("gpu-release", vm);
   if (!jobId) return;
   const cluster = core.cluster(vm.clusterId);
   const vmid = vm.vmid;
@@ -94,7 +87,7 @@ async function begin(core: Core, resId: string) {
     db.reservation.update({ where: { id: resId }, data: { status: "failed", error } });
   if (r.endAt <= new Date()) return fail("the booking window passed before it could start");
   if (vm.status !== "active" || vm.vmid === null) return fail("the VM is no longer active");
-  const jobId = await tryJob(core, "gpu-attach", vm);
+  const jobId = await core.tryJob("gpu-attach", vm);
   if (!jobId) return;
   const cluster = core.cluster(vm.clusterId);
   const vmid = vm.vmid;
@@ -109,11 +102,23 @@ async function begin(core: Core, resId: string) {
       where: { id: resId, status: "scheduled" },
       data: { status: "active", gpuId },
     });
+    await notify(r.userId, {
+      kind: "gpu.started",
+      title: `${vm.name} has its GPU`,
+      body: `Your booking runs until ${r.endAt.toISOString().slice(0, 16).replace("T", " ")} UTC.`,
+      link: `/vms/${vm.id}`,
+    });
   } else {
     const job = await db.job.findUniqueOrThrow({ where: { id: jobId }, select: { error: true } });
     await db.reservation.updateMany({
       where: { id: resId, status: "scheduled" },
       data: { status: "failed", error: job.error },
+    });
+    await notify(r.userId, {
+      kind: "gpu.failed",
+      title: `GPU booking for ${vm.name} could not start`,
+      body: job.error,
+      link: `/vms/${vm.id}`,
     });
   }
 }
@@ -134,6 +139,7 @@ export function tick(core: Core): Promise<void> {
       select: { id: true },
     });
     for (const r of starting) await begin(core, r.id);
+    await housekeeping(core, now);
   });
 }
 

@@ -56,10 +56,19 @@ export interface NodeMetric {
   maxmem: number;
 }
 
-/** A live VNC (RFB) byte stream to a VM's display. */
+export interface PveSnapshot {
+  name: string;
+  description: string;
+  /** Unix seconds. */
+  time: number;
+}
+
+/** A live byte stream to a VM: its display (VNC/RFB) or its serial terminal. */
 export interface ConsoleStream {
-  /** VNC password the viewer must present (Proxmox's one-time ticket). */
+  /** VNC password the viewer must present (Proxmox's one-time ticket). Empty for terminals. */
   password: string;
+  /** Terminals only: tell the far end the window size. */
+  resize?(cols: number, rows: number): void;
   onData(cb: (data: Buffer) => void): void;
   onClose(cb: () => void): void;
   send(data: Buffer): void;
@@ -164,6 +173,19 @@ export interface ProxmoxDriver {
   ): Promise<{ exitCode: number; output: string }>;
   /** Open the VM's graphical console. The caller must close() it. */
   openConsole(node: string, vmid: number): Promise<ConsoleStream>;
+  /**
+   * Open the VM's serial terminal (needs `serial0: socket` in its config and a
+   * getty on ttyS0 in the guest). The stream carries plain terminal bytes.
+   */
+  openTerminal(node: string, vmid: number): Promise<ConsoleStream>;
+  /** Disk-only snapshots, oldest first. */
+  snapshots(node: string, vmid: number): Promise<PveSnapshot[]>;
+  snapshot(node: string, vmid: number, name: string, description?: string): Promise<void>;
+  /** Put the VM's disks back to a snapshot. A running VM ends up stopped. */
+  rollback(node: string, vmid: number, name: string): Promise<void>;
+  deleteSnapshot(node: string, vmid: number, name: string): Promise<void>;
+  /** Set a guest account's password through the guest agent (the VM must be running). */
+  setGuestPassword(node: string, vmid: number, username: string, password: string): Promise<void>;
 }
 
 export async function findVm(drv: ProxmoxDriver, vmid: number): Promise<PveVm | undefined> {

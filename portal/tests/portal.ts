@@ -42,6 +42,9 @@ clusters:
     driver: mock
     approval: none
     setups: true
+    labs: true
+    lifetime_days: 30
+    max_snapshots: 2
     iso_storage: isos
     quota: { max_vms: 2, max_cores: 4 }
     limits: { max_cores: 4, max_memory_mb: 8192, max_disk_gb: 50 }
@@ -70,7 +73,7 @@ export class Portal {
 
   static async create() {
     await db.$executeRawUnsafe(
-      'TRUNCATE "setups","audit","jobs","backups","reservations","services","images","vms","profiles","identity_groups","accounts","sessions","users" CASCADE',
+      'TRUNCATE "notifications","vm_shares","labs","setups","audit","jobs","backups","reservations","services","images","vms","profiles","identity_groups","accounts","sessions","users" CASCADE',
     );
     const p = new Portal();
     setCoreForTests(p.core);

@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type * as infra from "@/server/handlers/infra";
+import type * as manage from "@/server/handlers/manage";
 import type * as vms from "@/server/handlers/vms";
 
 /** Browser-side API access. Types come straight from the server handlers. */
@@ -13,6 +14,13 @@ export type Cluster = Out<typeof vms.listClusters>[number];
 export type Image = Cluster["images"][number];
 export type Setup = Cluster["setups"][number];
 export type Created = Out<typeof vms.createVm>;
+export type Blueprint = Cluster["labs"][number];
+export type Lab = Out<typeof manage.listLabs>[number];
+export type LabCreated = Out<typeof manage.createLab>;
+export type Snapshots = Out<typeof manage.listSnapshots>;
+export type Notifications = Out<typeof manage.listNotifications>;
+export type PublicPerson = Out<typeof manage.findPeople>[number];
+export type Login = { user: string; password: string };
 export type AdminSetup = Out<typeof infra.adminSetups>[number];
 export type Vm = Out<typeof vms.listVms>[number];
 export type VmDetail = Out<typeof vms.vmDetail>;
@@ -68,6 +76,12 @@ export const useSession = () => get<Session>(["session"], "/session", false);
 export const useClusters = () => get<Cluster[]>(["clusters"], "/clusters", 30_000);
 export const useVms = (scope: "mine" | "all" = "mine") => get<Vm[]>(["vms", scope], `/vms?scope=${scope}`);
 export const useVm = (id: string) => get<VmDetail>(["vm", id], `/vms/${id}`);
+export const useSnapshots = (id: string, enabled: boolean) =>
+  get<Snapshots>(["snapshots", id], `/vms/${id}/snapshots`, 15_000, enabled);
+export const useLabs = () => get<Lab[]>(["labs"], "/labs", 30_000);
+export const useNotifications = () => get<Notifications>(["notifications"], "/notifications", 30_000);
+export const usePeople = (q: string) =>
+  get<PublicPerson[]>(["people", q], `/people?q=${encodeURIComponent(q)}`, false, q.trim().length >= 2);
 export const useGpus = () => get<GpuCluster[]>(["gpus"], "/gpus");
 export const useServices = () => get<Service[]>(["services"], "/services", 30_000);
 export const useReservations = (clusterId: string, start: Date, end: Date) =>
@@ -113,14 +127,15 @@ export function useAct<TArgs = void, TOut = unknown>(
 }
 
 /**
- * The generated first-login password is returned once, when the VM is created.
+ * A generated password is returned once: when the VM is created or rebuilt, or
+ * when its password is reset.
  * Keep it for this browser tab only, so the VM page can show it until dismissed.
  */
 const loginKey = (vmId: string) => `macs-login-${vmId}`;
-export function rememberLogin(created: Created) {
+export function rememberLogin(created: { id: string; login: Login | null }) {
   if (created.login) sessionStorage.setItem(loginKey(created.id), JSON.stringify(created.login));
 }
-export function recallLogin(vmId: string): { user: string; password: string } | null {
+export function recallLogin(vmId: string): Login | null {
   try {
     return JSON.parse(sessionStorage.getItem(loginKey(vmId)) ?? "null");
   } catch {

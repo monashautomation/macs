@@ -131,6 +131,16 @@ export class Core {
     }
   }
 
+  /** Like createJob, for automatic work: null when the VM is busy (try again next pass). */
+  async tryJob(kind: string, vm: { id: string; name: string }): Promise<string | null> {
+    try {
+      return await this.createJob(kind, vm, null);
+    } catch (e) {
+      if (e instanceof Busy) return null;
+      throw e;
+    }
+  }
+
   /** Runs fn, streaming its log lines into the job row. Resolves to success. */
   async runJob(jobId: string, fn: (log: Log) => Promise<void>): Promise<boolean> {
     let queue: Promise<unknown> = Promise.resolve();
@@ -160,6 +170,13 @@ export class Core {
 
   spawnJob(jobId: string, fn: (log: Log) => Promise<void>) {
     const task = this.runJob(jobId, fn).catch((err) => logger.error({ err, jobId }, "job runner crashed"));
+    this.tasks.add(task);
+    void task.finally(() => this.tasks.delete(task));
+  }
+
+  /** Track background work that spans several jobs, so shutdown and tests can wait for it. */
+  background(work: () => Promise<void>) {
+    const task = work().catch((err) => logger.error({ err }, "background task crashed"));
     this.tasks.add(task);
     void task.finally(() => this.tasks.delete(task));
   }

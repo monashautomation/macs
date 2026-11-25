@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@monashautomation/ui/button";
+import { LogOut } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 
 export function SignInButton({ callbackPath = "/" }: { callbackPath?: string }) {
@@ -15,9 +16,12 @@ export function SignOutButton() {
   return (
     <Button
       variant="ghost"
+      size="sm"
+      aria-label="Sign out"
       onClick={() => authClient.signOut({ fetchOptions: { onSuccess: () => window.location.assign("/") } })}
     >
-      Sign out
+      <LogOut className="sm:hidden" aria-hidden />
+      <span className="hidden sm:inline">Sign out</span>
     </Button>
   );
 }

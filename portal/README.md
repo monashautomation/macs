@@ -28,9 +28,16 @@ follows the platform app standard (central-platform-argocd `docs/standards/app-s
   Jellyfin, a web server…) and clean operating systems: one click creates the
   VM, sets up the login and networking, installs the software and publishes
   its address. Or install from an ISO yourself, the normal way.
+- **Looking after a VM.** Snapshots and roll back, rebuild, resize, daily power
+  schedules, adding SSH keys and resetting the password, sharing with
+  teammates, and a first-steps checklist. Homelab VMs expire unless extended
+  (shut down, never deleted).
+- **Labs.** Several VMs deployed together (two servers, web + database, a k3s
+  cluster) that can reach each other and nobody else.
+- **Notifications** in the app, with a webhook for the Discord bot.
 - **Image library** of prepared templates (flagged _GPU-ready_ when NVIDIA
   drivers are baked in) and install ISOs, curated in the app.
-- **Console** in the browser (noVNC), plus SSH / RDP / Moonlight details.
+- **Console and terminal** in the browser (noVNC, xterm.js), plus SSH / RDP / Moonlight details.
 - **Usage at a glance.** CPU, memory and network history on each VM, cluster
   load and GPU-hours booked per day for Systems & Infra, all read from Proxmox.
 - **Backups** to Proxmox Backup Server: back up, roll back, archive, restore.
@@ -201,6 +208,75 @@ it. A connection needs the single-use token (20 s lifetime) that
 app's own origin. While a GPU is the guest's primary display the Proxmox
 console is blank; that is what Sunshine/Moonlight is for.
 
+### Looking after a VM
+
+Each VM page has four tabs: Overview, Snapshots (& backups), Settings, Activity.
+
+- **Snapshots** are Proxmox disk snapshots (no RAM, so they also work with a
+  GPU attached), up to `max_snapshots` per VM. Rolling back restarts a running
+  VM and keeps today's GPU assignment and firewall, not the snapshot's.
+- **Rebuild** erases the VM and deploys the same image and setup again under
+  the same VMID. Name, size, sharing, keys and published ports survive;
+  snapshots do not. A new one-time password is shown.
+- **Resize** changes CPU, memory and disk (grow only) within the per-VM limits
+  and the owner's quota; a running VM is restarted only for CPU/memory. On
+  approval clusters only Systems & Infra can resize.
+- **Expiry** (`lifetime_days`, 0 = off): the owner is warned
+  `expiry_warning_days` ahead, then the VM is shut down, never deleted, and
+  cannot be started until someone extends it (one click, a full lifetime from
+  now).
+- **Power schedule**: a daily shut-down and/or start time in the owner's time
+  zone. A VM with an active GPU booking is not stopped until the booking ends.
+- **Login**: SSH keys are added to the image's login account through the guest
+  agent, after being rebuilt from their parts so nothing but
+  `type base64 comment` reaches the shell. **Reset password** generates a
+  password, sets it with Proxmox's `agent/set-user-password` call (not a shell
+  command) and shows it once; it is never stored, logged or audited.
+- **Terminal**: the VM's serial console (`serial0`, added at provisioning) in
+  xterm.js, through the same one-time-token websocket relay as the console.
+  It needs a getty on `ttyS0`, which cloud images have. VMs created before
+  this get the port on first use and need one cold restart.
+- **Sharing**: the owner adds people by name. They can see the VM, power it,
+  open its console and terminal, extend it and add their own SSH key. Delete,
+  rebuild, resize, schedules, publishing, backups, password reset and sharing
+  stay with the owner (`getVm(who, id, "use")` vs the default `"own"`).
+
+### Labs
+
+With `labs: true` on a self-service cluster, the Library offers blueprints
+(`src/server/services/labs.ts`): two plain servers, a Docker host with a
+PostgreSQL server, a three-node k3s cluster. The members are created together,
+then wired up once they have addresses: on an isolated cluster each gets a
+`macs:lab` firewall rule admitting the other members (and still nobody else),
+their names go into each other's `/etc/hosts`, and setup scripts get `LAB_*`
+variables. The lab secret (database password, k3s token) is derived from
+`BETTER_AUTH_SECRET` and the lab id, so it is in no table; it is written to
+`/root/lab-secret` in each member. Peer rules use the members' current
+addresses: if DHCP moves one, run Network sync.
+
+### Notifications
+
+Approvals and rejections, VM ready or failed, setup failures, expiry warnings,
+GPU bookings starting or failing, sharing and labs each create a notification
+for the people concerned, shown under the bell. If `NOTIFY_WEBHOOK_URL` is set,
+each is also POSTed there (with `Authorization: Bearer $NOTIFY_WEBHOOK_TOKEN`):
+
+```json
+{
+  "id": "…",
+  "kind": "vm.expiring",
+  "title": "…",
+  "body": "…",
+  "url": "https://macs…/vms/…",
+  "user": { "sub": "<Authentik sub>", "name": "…" },
+  "createdAt": "2026-11-25T03:00:00.000Z"
+}
+```
+
+Anything the receiver does not answer 2xx is retried by the scheduler for a
+day, so de-duplicate on `id`. This is the hook for the Discord bot: it maps
+`user.sub` to a Discord account and sends the DM.
+
 ## Deploying
 
 As for any template app (see `deploy/`), with three differences:
@@ -214,7 +290,9 @@ As for any template app (see `deploy/`), with three differences:
    NetworkPolicy allows egress to the Proxmox API (8006).
 
 OpenBao `apps/macs` needs the template's keys plus one Proxmox token secret per
-cluster, named as in the cluster file.
+cluster, named as in the cluster file, and `NOTIFY_WEBHOOK_URL` /
+`NOTIFY_WEBHOOK_TOKEN` once the Discord bot has an endpoint for them (the
+NetworkPolicy must then allow egress to it).
 
 The app lives in `portal/` of this repo, so CI is `.github/workflows/portal-ci.yml`
 at the repo root and the ArgoCD source path is `portal/deploy/extra`.
@@ -228,6 +306,10 @@ at the repo root and the ArgoCD source path is `portal/deploy/extra`.
 - `deploy/` values and the image-build CI job are adapted from the template but
   unverified against the platform (two ports, ConfigMap mount, app in a
   subdirectory).
-- No in-browser SSH/RDP (console only), no notifications, no VM expiry, no
+- The snapshot, `termproxy` terminal and `set-user-password` calls, the lab
+  setups and the notification webhook have only run against the mock.
+  `termproxy` with an API token in particular needs checking on a real node.
+- No idle detection (expiry is by date), no weekday-only power schedules.
+- No in-browser SSH/RDP (console and serial terminal only), no
   NetBird API integration, no per-VM first-boot snippets (NetBird join is a
   static vendor snippet per image).

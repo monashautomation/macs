@@ -5,6 +5,7 @@ import type { Core, Log } from "@/server/core";
 import { diskKey, diskSizeGb, findVm, type Params, ProxmoxError, type PveVm } from "@/server/proxmox/types";
 import { getImage } from "./images";
 import { applyNetworkPolicy } from "./network";
+import { notifyVm } from "./notify";
 
 /** Statuses that count against quota and hold a name. */
 export const VM_LIVE = ["pending", "provisioning", "active"];
@@ -36,10 +37,12 @@ export function quotaError(
   cluster: ClusterConfig,
   used: Awaited<ReturnType<typeof usage>>,
   want: { cores: number; memoryMb: number; diskGb: number },
+  /** How many VMs `want` adds up (0 when resizing an existing one). */
+  count = 1,
 ): string | null {
   const q = cluster.quota;
   const checks: [string, number, number][] = [
-    ["VMs", used.vms + 1, q.max_vms],
+    ["VMs", used.vms + count, q.max_vms],
     ["cores", used.cores + want.cores, q.max_cores],
     ["MB of memory", used.memoryMb + want.memoryMb, q.max_memory_mb],
     ["GB of disk", used.diskGb + want.diskGb, q.max_disk_gb],
@@ -91,7 +94,8 @@ async function fromTemplate(
   const { node, vmid } = await core.withLock(`provision:${cluster.id}`, async () => {
     const src = await findVm(drv, templateVmid);
     if (!src) throw new ProxmoxError(`template VM ${templateVmid} not found on ${cluster.name}`);
-    const vmid = await allocateVmid(core, cluster);
+    // A rebuild keeps the VM's id, so its backups stay with it.
+    const vmid = vm.vmid ?? (await allocateVmid(core, cluster));
     const node = await pickNode(core, cluster, src.node);
     log(`cloning template ${image.name} (${templateVmid}) to VM ${vmid} on ${node}`);
     await drv.clone(src.node, templateVmid, vmid, vm.name, cluster.storage, node);
@@ -99,7 +103,8 @@ async function fromTemplate(
     return { node, vmid };
   });
 
-  const params: Params = { cores: vm.cores, memory: vm.memoryMb, onboot: 0 };
+  // serial0 is what the in-browser terminal attaches to.
+  const params: Params = { cores: vm.cores, memory: vm.memoryMb, onboot: 0, serial0: "socket" };
   if (cluster.bridge)
     params.net0 = `virtio,bridge=${cluster.bridge}${cluster.vlan ? `,tag=${cluster.vlan}` : ""}`;
   if (image.os === "linux") {
@@ -143,7 +148,7 @@ async function fromIso(core: Core, cluster: ClusterConfig, vm: Vm, image: Image,
       if (!found) throw new ProxmoxError(`ISO ${image.volid} not found on any node`);
       node = found;
     }
-    const vmid = await allocateVmid(core, cluster);
+    const vmid = vm.vmid ?? (await allocateVmid(core, cluster));
     const windows = image.os === "windows";
     // Windows setup has no virtio drivers, so give it SATA + e1000.
     const disk = windows ? "sata0" : "scsi0";
@@ -158,6 +163,7 @@ async function fromIso(core: Core, cluster: ClusterConfig, vm: Vm, image: Image,
       bios: "ovmf",
       efidisk0: `${cluster.storage}:1,efitype=4m,pre-enrolled-keys=0`,
       scsihw: "virtio-scsi-single",
+      serial0: "socket",
       [disk]: `${cluster.storage}:${vm.diskGb}`,
       ide2: `${image.volid},media=cdrom`,
       boot: `order=${disk};ide2`,
@@ -172,7 +178,18 @@ async function fromIso(core: Core, cluster: ClusterConfig, vm: Vm, image: Image,
   });
 }
 
-export async function provision(core: Core, vmId: string, log: Log): Promise<void> {
+/** When a VM provisioned now should expire, per its cluster (null = never). */
+export function expiryFrom(cluster: ClusterConfig, now = new Date()): Date | null {
+  return cluster.lifetime_days ? new Date(now.getTime() + cluster.lifetime_days * 86_400_000) : null;
+}
+
+export async function provision(
+  core: Core,
+  vmId: string,
+  log: Log,
+  /** setup: false leaves the setup for the caller to install (labs wire the VMs together first). */
+  opts: { setup?: boolean } = {},
+): Promise<void> {
   const vm = await db.vm.findUniqueOrThrow({ where: { id: vmId }, include: { owner: true } });
   const cluster = core.cluster(vm.clusterId);
   const drv = core.driver(cluster.id);
@@ -195,15 +212,31 @@ export async function provision(core: Core, vmId: string, log: Log): Promise<voi
     await drv.start(node, vmid);
   } catch (e) {
     await db.vm.update({ where: { id: vmId }, data: { status: "error", error: (e as Error).message } });
+    await notifyVm(vmId, {
+      kind: "vm.failed",
+      title: `${vm.name} could not be created`,
+      body: (e as Error).message,
+    });
     throw e;
   }
-  await db.vm.update({ where: { id: vmId }, data: { status: "active", error: "" } });
+  await db.vm.update({
+    where: { id: vmId },
+    data: {
+      status: "active",
+      error: "",
+      expiresAt: expiryFrom(cluster),
+      expiryWarnedAt: null,
+      expired: false,
+    },
+  });
   log(image.kind === "iso" ? "ready - open the console to run the installer" : "ready");
+  if (opts.setup === false) return;
   // The VM is usable from here; a setup that fails to install can be retried.
   if (vm.setupSlug) {
     const { installSetup } = await import("./setups");
     await installSetup(core, vmId, log, intent.publish);
   }
+  await notifyVm(vmId, { kind: "vm.ready", title: `${vm.name} is ready` });
 }
 
 /** Live Proxmox record (node, status) for a portal VM, bypassing the cache. */
@@ -218,6 +251,8 @@ export async function power(core: Core, vmId: string, action: PowerAction, log: 
   const vm = await db.vm.findUniqueOrThrow({ where: { id: vmId } });
   const live = await locate(core, vm);
   if (!live || vm.vmid === null) throw new ProxmoxError(`VM ${vm.vmid} not found on the cluster`);
+  if (vm.expired && (action === "start" || action === "reboot"))
+    throw new ProxmoxError(`${vm.name} has expired; extend it to start it again`);
   const drv = core.driver(vm.clusterId);
   log(`${action} VM ${vm.vmid} on ${live.node}`);
   await drv[action](live.node, vm.vmid);

@@ -11,6 +11,7 @@ import {
   type PveBackup,
   type PveConfig,
   type PveNode,
+  type PveSnapshot,
   type PveVm,
   type Timeframe,
   type VmMetric,
@@ -399,7 +400,90 @@ export class ProxmoxClient implements ProxmoxDriver {
     }
   }
 
+  async setGuestPassword(node: string, vmid: number, username: string, password: string) {
+    await this.call("POST", `/nodes/${node}/qemu/${vmid}/agent/set-user-password`, { username, password });
+  }
+
+  // -- snapshots ----------------------------------------------------------
+
+  async snapshots(node: string, vmid: number): Promise<PveSnapshot[]> {
+    const rows = await this.call<{ name: string; description?: string; snaptime?: number }[]>(
+      "GET",
+      `/nodes/${node}/qemu/${vmid}/snapshot`,
+    );
+    return (rows ?? [])
+      .filter((r) => r.name !== "current") // Proxmox lists the live state too
+      .map((r) => ({ name: r.name, description: r.description ?? "", time: Number(r.snaptime ?? 0) }))
+      .sort((a, b) => a.time - b.time);
+  }
+
+  snapshot(node: string, vmid: number, name: string, description = "") {
+    // No vmstate: RAM snapshots are slow and impossible with a GPU passed through.
+    return this.task("POST", `/nodes/${node}/qemu/${vmid}/snapshot`, { snapname: name, description });
+  }
+
+  rollback(node: string, vmid: number, name: string) {
+    return this.task("POST", `/nodes/${node}/qemu/${vmid}/snapshot/${encodeURIComponent(name)}/rollback`);
+  }
+
+  deleteSnapshot(node: string, vmid: number, name: string) {
+    return this.task("DELETE", `/nodes/${node}/qemu/${vmid}/snapshot/${encodeURIComponent(name)}`);
+  }
+
   // -- console -----------------------------------------------------------
+
+  /**
+   * termproxy speaks Proxmox's xterm.js protocol over the same websocket
+   * endpoint as VNC: we send "user:ticket\n", it answers "OK", then input goes
+   * as "0:<bytes>:<data>", resizes as "1:<cols>:<rows>:" and keep-alives as "2".
+   */
+  async openTerminal(node: string, vmid: number): Promise<ConsoleStream> {
+    const data = await this.call<{ port: string | number; ticket: string; user: string }>(
+      "POST",
+      `/nodes/${node}/qemu/${vmid}/termproxy`,
+    );
+    const url =
+      `${this.base.replace(/^http/, "ws")}/nodes/${node}/qemu/${vmid}/vncwebsocket` +
+      `?port=${data.port}&vncticket=${encodeURIComponent(data.ticket)}`;
+    const ws = new WebSocket(url, ["binary"], {
+      headers: await this.auth(),
+      rejectUnauthorized: this.cfg.verify_tls,
+      handshakeTimeout: 10_000,
+    });
+    const raw = (text: string | Buffer) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(text);
+    };
+    const out = bufferedStream(
+      "",
+      (buf) => raw(Buffer.concat([Buffer.from(`0:${buf.length}:`), buf])),
+      () => ws.close(),
+    );
+    out.stream.resize = (cols, rows) => raw(`1:${cols}:${rows}:`);
+    let greeted = false;
+    ws.on("message", (msg) => {
+      let buf = Buffer.isBuffer(msg) ? msg : Buffer.concat(msg as Buffer[]);
+      if (!greeted) {
+        greeted = true;
+        if (buf.subarray(0, 2).toString() === "OK") buf = buf.subarray(2);
+      }
+      if (buf.length) out.push(buf);
+    });
+    const ping = setInterval(() => raw("2"), 30_000);
+    ws.on("close", () => {
+      clearInterval(ping);
+      out.end();
+    });
+    await new Promise<void>((resolve, reject) => {
+      ws.once("open", resolve);
+      ws.once("error", (e) => {
+        clearInterval(ping);
+        reject(new ProxmoxError(`${this.cfg.id}: could not open the terminal: ${e.message}`));
+      });
+    });
+    ws.on("error", () => ws.close());
+    ws.send(`${data.user}:${data.ticket}\n`);
+    return out.stream;
+  }
 
   async openConsole(node: string, vmid: number): Promise<ConsoleStream> {
     // vncproxy starts a short-lived VNC listener on the node; the websocket

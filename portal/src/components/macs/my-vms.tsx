@@ -9,10 +9,54 @@ import { SectionCard } from "@monashautomation/ui/section-card";
 import { Skeleton } from "@monashautomation/ui/skeleton";
 import { StatTile } from "@monashautomation/ui/stat-tile";
 import { StatusBadge } from "@monashautomation/ui/status-badge";
-import { Cpu, Hourglass, MemoryStick, Plus, Power, Server } from "lucide-react";
+import { Cpu, Hourglass, MemoryStick, Network, Plus, Power, Server } from "lucide-react";
 import Link from "next/link";
-import { type Cluster, useClusters, useVms } from "@/lib/client";
+import { useConfirm } from "@/components/providers";
+import { api, type Cluster, type Lab, useAct, useClusters, useLabs, useVms, type Vm } from "@/lib/client";
 import { VmTable } from "./common";
+
+/** A lab's VMs together, with the one thing you do to a whole lab: delete it. */
+function LabCard({ lab, vms, clusters }: { lab: Lab; vms: Vm[]; clusters: Cluster[] }) {
+  const confirm = useConfirm();
+  const remove = useAct(() => api(`/labs/${lab.id}`, { method: "DELETE" }), {
+    success: `Deleting lab ${lab.name}`,
+  });
+  return (
+    <SectionCard
+      title={
+        <>
+          <Network className="size-4 text-muted-foreground" aria-hidden /> Lab {lab.name}
+          <Badge variant="secondary">{lab.blueprint}</Badge>
+        </>
+      }
+      actions={
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={remove.isPending}
+          onClick={async () => {
+            if (
+              await confirm({
+                title: `Delete lab ${lab.name}?`,
+                description: `Its ${vms.length} VMs and their disks are destroyed. This cannot be undone.`,
+                confirm: "Delete lab",
+                destructive: true,
+              })
+            )
+              remove.mutate();
+          }}
+        >
+          Delete lab
+        </Button>
+      }
+    >
+      <p className="mb-2 text-xs text-muted-foreground">
+        These VMs can reach each other by name; other people's VMs cannot reach them.
+      </p>
+      <VmTable vms={vms} clusters={clusters} actions />
+    </SectionCard>
+  );
+}
 
 function Quota({ label, used, max, unit = "" }: { label: string; used: number; max: number; unit?: string }) {
   if (!max) return null;
@@ -71,7 +115,11 @@ function ClusterCard({ c }: { c: Cluster }) {
 export function MyVms() {
   const vms = useVms();
   const clusters = useClusters();
+  const labs = useLabs();
   const none = clusters.data?.length === 0;
+  const inLab = (lab: Lab) => (vms.data ?? []).filter((v) => v.labId === lab.id);
+  const grouped = new Set((labs.data ?? []).flatMap((l) => inLab(l).map((v) => v.id)));
+  const loose = (vms.data ?? []).filter((v) => !grouped.has(v.id));
   const mine = (vms.data ?? []).filter((v) => ["active", "provisioning", "pending"].includes(v.status));
   const running = mine.filter((v) => v.power === "running").length;
   const waiting = mine.filter((v) => v.status === "pending" || v.gpuAccess === "requested").length;
@@ -132,9 +180,18 @@ export function MyVms() {
           {vms.isLoading ? (
             <Skeleton className="h-40" />
           ) : vms.data?.length ? (
-            <SectionCard>
-              <VmTable vms={vms.data} clusters={clusters.data ?? []} actions />
-            </SectionCard>
+            <>
+              {(labs.data ?? []).map((lab) =>
+                inLab(lab).length ? (
+                  <LabCard key={lab.id} lab={lab} vms={inLab(lab)} clusters={clusters.data ?? []} />
+                ) : null,
+              )}
+              {loose.length ? (
+                <SectionCard>
+                  <VmTable vms={loose} clusters={clusters.data ?? []} actions />
+                </SectionCard>
+              ) : null}
+            </>
           ) : (
             <EmptyState
               icon={<Server />}

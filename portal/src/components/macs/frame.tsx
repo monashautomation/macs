@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { SignOutButton } from "@/components/auth-buttons";
 import { pendingCount, useApprovals } from "@/lib/client";
+import { NotificationBell } from "./notifications";
 
 export interface FrameProps {
   appName: string;
@@ -95,6 +96,7 @@ export function Frame({
       nav={nav}
       user={
         <>
+          <NotificationBell />
           <span className="hidden text-sm text-muted-foreground lg:inline">{userName}</span>
           <SignOutButton />
         </>

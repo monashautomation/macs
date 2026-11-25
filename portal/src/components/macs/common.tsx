@@ -93,8 +93,9 @@ export function Muted({ children }: { children: ReactNode }) {
   return <p className="py-4 text-center text-sm text-muted-foreground">{children}</p>;
 }
 
-export function VmStatus({ vm }: { vm: Pick<Vm, "status" | "power" | "busy"> }) {
+export function VmStatus({ vm }: { vm: Pick<Vm, "status" | "power" | "busy"> & { expired?: boolean } }) {
   if (vm.busy && vm.status === "active") return <StatusBadge tone="info">working…</StatusBadge>;
+  if (vm.status === "active" && vm.expired) return <StatusBadge tone="warning">expired</StatusBadge>;
   switch (vm.status) {
     case "pending":
       return <StatusBadge tone="warning">awaiting approval</StatusBadge>;
@@ -185,6 +186,7 @@ export function VmTable({
                   {vm.vmid !== null ? (
                     <span className="text-xs text-muted-foreground tabular-nums">#{vm.vmid}</span>
                   ) : null}
+                  {vm.access === "shared" ? <Badge variant="secondary">shared with you</Badge> : null}
                 </span>
               </TableCell>
               {showOwner ? <TableCell className="text-muted-foreground">{vm.owner.name}</TableCell> : null}

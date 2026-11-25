@@ -11,7 +11,8 @@ import { locate } from "./vms";
  * On a cluster with `network.isolate`, every portal VM gets its firewall turned
  * on with inbound traffic dropped by default. That is what keeps tenants apart:
  * a VM can talk out, but nothing (including its neighbours) can talk in except
- *   - the owner's access ports (SSH/RDP) from `access_sources`, and
+ *   - the owner's access ports (SSH/RDP) from `access_sources`,
+ *   - the other VMs of its lab, if it was deployed as part of one, and
  *   - ports the owner has published as services, from `public_sources`.
  *
  * The portal owns the rules whose comment starts with "macs:" and rewrites them
@@ -22,6 +23,8 @@ export const MARK = "macs:";
 export function desiredRules(
   cluster: ClusterConfig,
   services: Pick<Service, "id" | "name" | "port" | "protocol" | "status">[],
+  /** Addresses of the other VMs in this VM's lab: they may reach it on any port. */
+  labPeers: string[] = [],
 ): FirewallRule[] {
   const net = cluster.network;
   const from = (sources: string[]): FirewallRule => (sources.length ? { source: sources.join(",") } : {});
@@ -37,6 +40,9 @@ export function desiredRules(
       ...access,
       comment: `${MARK}access`,
     })),
+    ...(labPeers.length
+      ? [{ type: "in", action: "ACCEPT", source: labPeers.join(","), comment: `${MARK}lab` }]
+      : []),
     ...services
       .filter((s) => s.status === "published")
       .map((s) => ({
@@ -71,7 +77,10 @@ export async function applyNetworkPolicy(core: Core, vmId: string, log?: Log): P
 
   // Add the new allow rules before removing the old ones, and only then make
   // sure the default is DROP, so a running VM's owner is never locked out.
-  const want = desiredRules(cluster, vm.services);
+  const peers = vm.labId
+    ? (await (await import("./labs")).labAddresses(core, vm.labId, vm.id)).map((p) => p.ip)
+    : [];
+  const want = desiredRules(cluster, vm.services, peers);
   for (const rule of [...want].reverse()) await drv.firewallAddRule(node, vmid, rule); // each insert goes to the top
   const stale = (await drv.firewallRules(node, vmid))
     .filter((r) => (r.pos ?? 0) >= want.length && String(r.comment ?? "").startsWith(MARK))

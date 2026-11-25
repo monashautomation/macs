@@ -217,6 +217,7 @@ describe.skipIf(!hasDb)("one-click installs", () => {
       diskGb: 20,
       ports: [{ name: "Hello", port: 8080, protocol: "tcp" as const, scheme: "http" as const }],
       afterInstall: "",
+      steps: [],
       enabled: true,
     };
     const made = await infra.addSetup(admin, body);

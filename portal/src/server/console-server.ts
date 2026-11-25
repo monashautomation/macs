@@ -4,7 +4,7 @@ import { logger } from "@/lib/logger";
 import type { Core } from "@/server/core";
 
 /**
- * Websocket relay for VM consoles (noVNC in the browser <-> Proxmox).
+ * Websocket relay for VM consoles and terminals (noVNC / xterm.js in the browser <-> Proxmox).
  *
  * Next.js route handlers cannot upgrade to websockets, so this listens on its
  * own port; the ingress maps /console-ws to it. A connection is authorised by
@@ -29,7 +29,19 @@ export function startConsoleServer(core: Core, port: number, appOrigin: string):
       if (ws.readyState === ws.OPEN) ws.send(data);
     });
     stream.onClose(() => ws.close());
-    ws.on("message", (data: RawData) => {
+    ws.on("message", (data: RawData, isBinary: boolean) => {
+      if (!isBinary) {
+        // Terminals send their window size as text: {"resize":[cols,rows]}.
+        try {
+          const [cols, rows] = (JSON.parse(String(data)) as { resize?: unknown[] }).resize ?? [];
+          if (Number.isInteger(cols) && Number.isInteger(rows) && Number(cols) > 0 && Number(rows) > 0) {
+            stream.resize?.(Math.min(Number(cols), 500), Math.min(Number(rows), 200));
+          }
+        } catch {
+          // not ours: ignore
+        }
+        return;
+      }
       stream.send(
         Buffer.isBuffer(data) ? data : Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data),
       );

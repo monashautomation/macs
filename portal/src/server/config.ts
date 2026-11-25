@@ -122,6 +122,17 @@ const cluster = z
     setups: z.boolean().default(false),
     /** Image slug that one-click setups are installed on. Default: the first Debian/Ubuntu template in the library. */
     default_image: z.string().default(""),
+    /** Offer multi-VM labs (several VMs deployed together that can reach each other). */
+    labs: z.boolean().default(false),
+    /**
+     * Days a VM runs before it is shut down unless someone extends it (it is
+     * never deleted). 0 = VMs do not expire.
+     */
+    lifetime_days: z.number().int().min(0).default(0),
+    /** How long before expiry the owner is warned. */
+    expiry_warning_days: z.number().int().min(1).default(3),
+    /** Snapshots a VM may hold at once. 0 = snapshots off. */
+    max_snapshots: z.number().int().min(0).default(3),
     network: network.default(() => network.parse({})),
     /** Per-VM ceilings. */
     limits: z

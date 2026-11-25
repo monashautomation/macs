@@ -5,7 +5,9 @@ import { db } from "@/lib/db";
 import type { ClusterConfig } from "@/server/config";
 import type { Core, Log } from "@/server/core";
 import { ProxmoxError } from "@/server/proxmox/types";
+import { labScript } from "./labs";
 import { applyNetworkPolicy } from "./network";
+import { notifyVm } from "./notify";
 import { locate } from "./vms";
 
 /**
@@ -31,7 +33,39 @@ systemctl enable --now docker
 
 const container = (run: string) => `${DOCKER}\n${run}`;
 
-type Builtin = Omit<Setup, "id" | "createdAt" | "enabled" | "ports"> & { ports: SetupPort[] };
+type Builtin = Omit<Setup, "id" | "createdAt" | "enabled" | "ports" | "steps" | "listed"> & {
+  ports: SetupPort[];
+  /** false = only deployed by lab blueprints. */
+  listed?: boolean;
+};
+
+export const setupSteps = (s: Pick<Setup, "steps">): string[] => z.array(z.string()).catch([]).parse(s.steps);
+
+/** First steps for the built-in setups, shown as a checklist on the VM's page. */
+const STEPS: Record<string, string[]> = {
+  docker: [
+    "Sign in over SSH or the terminal",
+    "Run: docker run hello-world",
+    "Start a container of your own",
+  ],
+  portainer: [
+    "Open Portainer and create the admin account (within 5 minutes of install)",
+    "Deploy a container from an app template",
+  ],
+  nginx: ["Open the site to see the welcome page", "Replace the page in /var/www/html"],
+  "uptime-kuma": ["Open Uptime Kuma and create the admin account", "Add a monitor for a site you care about"],
+  gitea: ["Open Gitea and finish the install page", "Create a repository and push to it"],
+  jellyfin: ["Open Jellyfin and run the setup wizard", "Copy some media into /srv/media"],
+  "home-assistant": ["Open Home Assistant and create your account", "Add your first integration"],
+  k3s: [
+    "Sign in and run: sudo kubectl get nodes",
+    "Deploy something: sudo kubectl create deployment web --image=nginx",
+  ],
+  minecraft: [
+    "Wait a few minutes for the first start",
+    "Join from Minecraft with the address shown under Services",
+  ],
+};
 const port = (
   name: string,
   p: number,
@@ -156,6 +190,51 @@ curl -sfL https://get.k3s.io | sh -`,
     afterInstall: "Sign in and try: sudo kubectl get nodes",
   },
   {
+    slug: "lab-postgres",
+    name: "PostgreSQL (lab)",
+    category: "Labs",
+    listed: false,
+    cores: 2,
+    memoryMb: 2048,
+    diskGb: 20,
+    ports: [port("PostgreSQL", 5432)],
+    description: "PostgreSQL for a lab's other machines. The password is the lab secret.",
+    script: container(
+      'docker run -d --name postgres --restart unless-stopped -p 5432:5432 -e POSTGRES_PASSWORD="$LAB_SECRET" -v pgdata:/var/lib/postgresql/data postgres:17',
+    ),
+    afterInstall: "User postgres; the password is in /root/lab-secret on every machine in the lab.",
+  },
+  {
+    slug: "lab-k3s-server",
+    name: "k3s server (lab)",
+    category: "Labs",
+    listed: false,
+    cores: 2,
+    memoryMb: 2048,
+    diskGb: 20,
+    ports: [port("Kubernetes API", 6443, "https")],
+    description: "The control plane of a lab's Kubernetes cluster.",
+    script: `apt-get update -qq
+apt-get install -y -qq curl
+curl -sfL https://get.k3s.io | K3S_TOKEN="$LAB_SECRET" sh -s - server`,
+    afterInstall: "Sign in and try: sudo kubectl get nodes",
+  },
+  {
+    slug: "lab-k3s-agent",
+    name: "k3s agent (lab)",
+    category: "Labs",
+    listed: false,
+    cores: 2,
+    memoryMb: 2048,
+    diskGb: 20,
+    ports: [],
+    description: "A worker that joins the lab's k3s server.",
+    script: `apt-get update -qq
+apt-get install -y -qq curl
+curl -sfL https://get.k3s.io | K3S_URL="https://$LAB_SERVER_IP:6443" K3S_TOKEN="$LAB_SECRET" sh -`,
+    afterInstall: "It shows up in: sudo kubectl get nodes (on the server).",
+  },
+  {
     slug: "minecraft",
     name: "Minecraft server",
     category: "Games",
@@ -174,8 +253,15 @@ curl -sfL https://get.k3s.io | sh -`,
 
 /** Add built-in setups the library does not have yet; never overwrite edits. */
 export async function seedSetups() {
-  const have = new Set((await db.setup.findMany({ select: { slug: true } })).map((s) => s.slug));
-  for (const b of BUILTIN) if (!have.has(b.slug)) await db.setup.create({ data: b });
+  const have = new Map((await db.setup.findMany()).map((s) => [s.slug, s]));
+  for (const b of BUILTIN) {
+    const steps = STEPS[b.slug] ?? [];
+    const row = have.get(b.slug);
+    if (!row) await db.setup.create({ data: { ...b, steps } });
+    // Rows from before first steps existed get the built-in ones.
+    else if (steps.length && !setupSteps(row).length)
+      await db.setup.update({ where: { slug: b.slug }, data: { steps } });
+  }
 }
 
 export function setupOut(s: Setup) {
@@ -189,6 +275,7 @@ export function setupOut(s: Setup) {
     diskGb: s.diskGb,
     ports: setupPorts(s),
     afterInstall: s.afterInstall,
+    steps: setupSteps(s),
   };
 }
 
@@ -218,6 +305,11 @@ export async function installSetup(core: Core, vmId: string, log: Log, publish =
   const setup = await db.setup.findUnique({ where: { slug: vm.setupSlug } });
   const fail = async (message: string): Promise<never> => {
     await db.vm.update({ where: { id: vmId }, data: { setupStatus: "failed" } });
+    await notifyVm(vmId, {
+      kind: "vm.setup-failed",
+      title: `${setup?.name ?? "The setup"} did not install on ${vm.name}`,
+      body: "Open the VM to see the log and retry.",
+    });
     throw new ProxmoxError(message);
   };
   if (!setup) return fail(`setup ${vm.setupSlug} is no longer in the library`);
@@ -234,6 +326,7 @@ export async function installSetup(core: Core, vmId: string, log: Log, publish =
     "export DEBIAN_FRONTEND=noninteractive",
     `MACS_USER=${shq(image?.defaultUser ?? "")}`,
     `MACS_HOSTNAME=${shq(vm.name)}`,
+    await labScript(core, vm),
     'command -v apt-get >/dev/null || { echo "This setup needs a Debian or Ubuntu image." >&2; exit 2; }',
     // cloud-init may still be holding apt on first boot.
     "command -v cloud-init >/dev/null && cloud-init status --wait >/dev/null 2>&1 || true",

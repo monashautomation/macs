@@ -29,9 +29,9 @@ import {
   Plug,
   Power,
   RotateCw,
+  SquareTerminal,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useState } from "react";
 import { useConfirm } from "@/components/providers";
 import {
@@ -61,6 +61,7 @@ import {
   VmStatus,
 } from "./common";
 import { OsIcon } from "./os-icon";
+import { Expiry, FirstSteps, SnapshotsPanel, VmSettings } from "./vm-manage";
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -126,7 +127,7 @@ function FirstLogin({ vmId }: { vmId: string }) {
     <SectionCard
       title={
         <>
-          <KeyRound className="size-4 text-muted-foreground" aria-hidden /> Your login for this VM
+          <KeyRound className="size-4 text-muted-foreground" aria-hidden /> Login for this VM
         </>
       }
       actions={
@@ -152,8 +153,8 @@ function FirstLogin({ vmId }: { vmId: string }) {
         </div>
       </div>
       <p className="mt-3 text-sm text-warning">
-        This password is shown only now and cannot be recovered. Use it to sign in on the console (and for
-        sudo); SSH uses your key if you have one saved.
+        This password is shown only now and cannot be recovered. Use it to sign in on the terminal or console
+        (and for sudo); SSH uses your key if you have one saved.
       </p>
     </SectionCard>
   );
@@ -420,9 +421,10 @@ function ServicesPanel({ vm, approval, max }: { vm: Detail; approval: boolean; m
 export function VmDetail({ id }: { id: string }) {
   const vmq = useVm(id);
   const clusters = useClusters();
-  const router = useRouter();
   const confirm = useConfirm();
   const [dialog, setDialog] = useState<"gpu" | "backup" | null>(null);
+  const [tab, setTab] = useState("overview");
+  const [loginShown, setLoginShown] = useState(0);
   const [text, setText] = useState("");
   const act = useAct((a: { path: string; method?: string; body?: unknown }) =>
     api(a.path, { method: a.method ?? "POST", body: a.body ?? {} }),
@@ -451,7 +453,11 @@ export function VmDetail({ id }: { id: string }) {
   const active = vm.status === "active";
   const idle = active && !vm.busy;
   const running = vm.power === "running";
-  const exists = active || vm.status === "error";
+  const own = vm.access !== "shared";
+  const showLogin = () => {
+    setLoginShown((n) => n + 1);
+    setTab("overview");
+  };
   const power = (action: string) => run(`/vms/${id}/power`, { action });
 
   return (
@@ -462,9 +468,15 @@ export function VmDetail({ id }: { id: string }) {
         <h1 className="text-2xl font-bold tracking-tight">{vm.name}</h1>
         <VmStatus vm={vm} />
         {vm.gpu ? <StatusBadge tone="success">{vm.gpu} attached</StatusBadge> : null}
+        {vm.access === "shared" ? <StatusBadge tone="info">shared by {vm.owner.name}</StatusBadge> : null}
+        {vm.lab ? (
+          <StatusBadge tone="neutral">
+            lab {vm.lab.name} · {vm.lab.role}
+          </StatusBadge>
+        ) : null}
         <div className="ml-auto flex flex-wrap gap-2">
           {active && !running ? (
-            <Button variant="outline" disabled={!idle} onClick={() => power("start")}>
+            <Button variant="outline" disabled={!idle || vm.expired} onClick={() => power("start")}>
               <Play aria-hidden /> Start
             </Button>
           ) : null}
@@ -505,7 +517,8 @@ export function VmDetail({ id }: { id: string }) {
         <Note>Request rejected{vm.reviewNote ? `: ${vm.reviewNote}` : ""}</Note>
       ) : null}
       {vm.status === "error" ? <Note tone="danger">Provisioning failed: {vm.error}</Note> : null}
-      <FirstLogin vmId={vm.id} />
+      <Expiry vm={vm} run={run} />
+      <FirstLogin key={loginShown} vmId={vm.id} />
       {vm.setup ? <SetupStatus vm={vm} onRetry={() => run(`/vms/${id}/setup`)} /> : null}
       {vm.status === "archived" ? (
         <Note>
@@ -514,260 +527,324 @@ export function VmDetail({ id }: { id: string }) {
         </Note>
       ) : null}
 
-      <SectionCard
-        title={
-          <>
-            <Info className="size-4 text-muted-foreground" aria-hidden /> Details
-          </>
-        }
-      >
-        <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <Fact label="Cluster">{cluster?.name ?? vm.clusterId}</Fact>
-          <Fact label="Node">{vm.node ?? "—"}</Fact>
-          <Fact label="VMID">{vm.vmid ?? "—"}</Fact>
-          <Fact label="Owner">{vm.owner.name}</Fact>
-          <Fact label="Size">
-            {vm.cores} vCPU · {fmtGB(vm.memoryMb)} · {vm.diskGb} GB
-          </Fact>
-          <Fact label="Image">{vm.image?.name ?? (vm.imageSlug || "—")}</Fact>
-          <Fact label="Uptime">{fmtUptime(vm.uptime)}</Fact>
-          <Fact label="IP address">
-            {vm.ips.length ? vm.ips.join(", ") : running ? "waiting for guest agent…" : "—"}
-          </Fact>
-        </dl>
-      </SectionCard>
-
-      {active && running ? <UsagePanel id={vm.id} /> : null}
-
-      {active ? (
-        <SectionCard
-          title={
-            <>
-              <Plug className="size-4 text-muted-foreground" aria-hidden /> Connect
-            </>
-          }
-          actions={
-            running ? (
-              <Button asChild>
-                <a
-                  href={`/vms/${vm.id}/console`}
-                  target="_blank"
-                  rel="noopener"
-                  className="text-primary-foreground no-underline"
-                >
-                  Open console <ExternalLink aria-hidden />
-                </a>
-              </Button>
-            ) : null
-          }
-        >
-          {!running ? (
-            <p className="text-sm text-muted-foreground">
-              Start the VM to open its console or connect over the network.
-            </p>
-          ) : (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                {vm.image?.kind === "iso"
-                  ? "This VM booted an installer. Open the console to install the operating system; network details appear once the guest agent is running."
-                  : "The console is the VM's own screen and keyboard in your browser. It works even before the network is up, so use it to fix a broken SSH or network setup."}
-              </p>
-              {vm.connections.map((c) => (
-                <ConnectionRow key={c.kind} c={c} name={vm.name} hasKey={vm.hasSshKey} />
-              ))}
-              {!vm.connections.length ? (
-                <p className="text-sm text-muted-foreground">
-                  Waiting for the guest agent to report an address for SSH / remote desktop…
-                </p>
-              ) : null}
-            </div>
-          )}
-        </SectionCard>
-      ) : null}
-
-      {cluster?.network.services && active ? (
-        <ServicesPanel
-          vm={vm}
-          approval={cluster.network.serviceApproval === "required"}
-          max={cluster.network.maxServicesPerVm}
-        />
-      ) : null}
-
-      {cluster?.hasGpus && vm.status !== "archived" ? (
-        <SectionCard
-          title={
-            <>
-              <Cpu className="size-4 text-muted-foreground" aria-hidden /> GPU
-            </>
-          }
-          actions={
-            vm.gpuAccess === "approved" && active ? (
-              <Button asChild variant="outline">
-                <Link href={`/gpus?vm=${vm.id}`} className="text-foreground no-underline">
-                  Book GPU time
-                </Link>
-              </Button>
-            ) : vm.gpuAccess === "none" ? (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setText("");
-                  setDialog("gpu");
-                }}
-              >
-                Request GPU access
-              </Button>
-            ) : null
-          }
-        >
-          {vm.gpuAccess === "none" ? (
-            <p className="text-sm text-muted-foreground">This VM is not approved for GPU use.</p>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="max-w-full overflow-x-auto">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          {active || vm.status === "archived" ? (
+            <TabsTrigger value="saved">
+              {cluster?.hasBackups ? "Snapshots & backups" : "Snapshots"}
+            </TabsTrigger>
           ) : null}
-          {vm.gpuAccess === "requested" ? (
-            <p className="text-sm text-warning">GPU access requested — waiting for Systems & Infra.</p>
-          ) : null}
-          {vm.gpuAccess === "approved" ? (
-            vm.reservations.length ? (
-              <ul className="text-sm">
-                {vm.reservations.map((r) => (
-                  <li
-                    key={r.id}
-                    className="flex flex-wrap items-center gap-2 border-b border-border py-2 last:border-0"
+          <TabsTrigger value="settings">Settings</TabsTrigger>
+          <TabsTrigger value="activity">Activity</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {tab === "overview" ? (
+        <div className="space-y-4">
+          <SectionCard
+            title={
+              <>
+                <Info className="size-4 text-muted-foreground" aria-hidden /> Details
+              </>
+            }
+          >
+            <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <Fact label="Cluster">{cluster?.name ?? vm.clusterId}</Fact>
+              <Fact label="Node">{vm.node ?? "—"}</Fact>
+              <Fact label="VMID">{vm.vmid ?? "—"}</Fact>
+              <Fact label="Owner">{vm.owner.name}</Fact>
+              <Fact label="Size">
+                {vm.cores} vCPU · {fmtGB(vm.memoryMb)} · {vm.diskGb} GB
+              </Fact>
+              <Fact label="Image">{vm.image?.name ?? (vm.imageSlug || "—")}</Fact>
+              <Fact label="Uptime">{fmtUptime(vm.uptime)}</Fact>
+              <Fact label="IP address">
+                {vm.ips.length ? vm.ips.join(", ") : running ? "waiting for guest agent…" : "—"}
+              </Fact>
+              {vm.expiresAt && active ? (
+                <Fact label="Runs until">
+                  {fmtDateTime(vm.expiresAt)}{" "}
+                  <button
+                    type="button"
+                    className="text-primary underline"
+                    onClick={() => run(`/vms/${id}/extend`)}
                   >
-                    <StatusBadge
-                      tone={
-                        r.status === "active"
-                          ? "success"
-                          : r.status === "failed"
-                            ? "danger"
-                            : r.status === "scheduled"
-                              ? "info"
-                              : "neutral"
-                      }
+                    extend
+                  </button>
+                </Fact>
+              ) : null}
+              {vm.schedule.start || vm.schedule.stop ? (
+                <Fact label="Power schedule">
+                  {vm.schedule.stop ? `off ${vm.schedule.stop}` : ""}
+                  {vm.schedule.stop && vm.schedule.start ? " · " : ""}
+                  {vm.schedule.start ? `on ${vm.schedule.start}` : ""}
+                </Fact>
+              ) : null}
+            </dl>
+          </SectionCard>
+
+          <FirstSteps vm={vm} />
+
+          {active && running ? <UsagePanel id={vm.id} /> : null}
+
+          {active ? (
+            <SectionCard
+              title={
+                <>
+                  <Plug className="size-4 text-muted-foreground" aria-hidden /> Connect
+                </>
+              }
+              actions={
+                running ? (
+                  <>
+                    {vm.image?.os !== "windows" && vm.image?.kind !== "iso" ? (
+                      <Button asChild variant="outline">
+                        <a
+                          href={`/vms/${vm.id}/terminal`}
+                          target="_blank"
+                          rel="noopener"
+                          className="text-foreground no-underline"
+                        >
+                          <SquareTerminal aria-hidden /> Terminal
+                        </a>
+                      </Button>
+                    ) : null}
+                    <Button asChild>
+                      <a
+                        href={`/vms/${vm.id}/console`}
+                        target="_blank"
+                        rel="noopener"
+                        className="text-primary-foreground no-underline"
+                      >
+                        Open console <ExternalLink aria-hidden />
+                      </a>
+                    </Button>
+                  </>
+                ) : null
+              }
+            >
+              {!running ? (
+                <p className="text-sm text-muted-foreground">
+                  Start the VM to open its console or connect over the network.
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    {vm.image?.kind === "iso"
+                      ? "This VM booted an installer. Open the console to install the operating system; network details appear once the guest agent is running."
+                      : "The terminal is a text login in your browser, with copy and paste. The console is the VM's own screen and keyboard. Both work even when the VM's network does not, so use them to fix a broken SSH or network setup."}
+                  </p>
+                  {vm.connections.map((c) => (
+                    <ConnectionRow key={c.kind} c={c} name={vm.name} hasKey={vm.hasSshKey} />
+                  ))}
+                  {!vm.connections.length ? (
+                    <p className="text-sm text-muted-foreground">
+                      Waiting for the guest agent to report an address for SSH / remote desktop…
+                    </p>
+                  ) : null}
+                </div>
+              )}
+            </SectionCard>
+          ) : null}
+
+          {cluster?.network.services && active && own ? (
+            <ServicesPanel
+              vm={vm}
+              approval={cluster.network.serviceApproval === "required"}
+              max={cluster.network.maxServicesPerVm}
+            />
+          ) : null}
+
+          {cluster?.hasGpus && vm.status !== "archived" ? (
+            <SectionCard
+              title={
+                <>
+                  <Cpu className="size-4 text-muted-foreground" aria-hidden /> GPU
+                </>
+              }
+              actions={
+                vm.gpuAccess === "approved" && active ? (
+                  <Button asChild variant="outline">
+                    <Link href={`/gpus?vm=${vm.id}`} className="text-foreground no-underline">
+                      Book GPU time
+                    </Link>
+                  </Button>
+                ) : vm.gpuAccess === "none" ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setText("");
+                      setDialog("gpu");
+                    }}
+                  >
+                    Request GPU access
+                  </Button>
+                ) : null
+              }
+            >
+              {vm.gpuAccess === "none" ? (
+                <p className="text-sm text-muted-foreground">This VM is not approved for GPU use.</p>
+              ) : null}
+              {vm.gpuAccess === "requested" ? (
+                <p className="text-sm text-warning">GPU access requested — waiting for Systems & Infra.</p>
+              ) : null}
+              {vm.gpuAccess === "approved" ? (
+                vm.reservations.length ? (
+                  <ul className="text-sm">
+                    {vm.reservations.map((r) => (
+                      <li
+                        key={r.id}
+                        className="flex flex-wrap items-center gap-2 border-b border-border py-2 last:border-0"
+                      >
+                        <StatusBadge
+                          tone={
+                            r.status === "active"
+                              ? "success"
+                              : r.status === "failed"
+                                ? "danger"
+                                : r.status === "scheduled"
+                                  ? "info"
+                                  : "neutral"
+                          }
+                        >
+                          {r.status}
+                        </StatusBadge>
+                        <span>
+                          {fmtDateTime(r.startAt)} → {fmtDateTime(r.endAt)}
+                        </span>
+                        {r.gpuId ? <span className="text-muted-foreground">{r.gpuId}</span> : null}
+                        {r.error ? <span className="text-destructive">{r.error}</span> : null}
+                        {r.status === "scheduled" || r.status === "active" ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="ml-auto"
+                            onClick={async () => {
+                              const now = r.status === "active";
+                              if (
+                                await confirm({
+                                  title: now ? "End this booking now?" : "Cancel this booking?",
+                                  description: now ? "The VM restarts without the GPU." : undefined,
+                                  confirm: now ? "End now" : "Cancel booking",
+                                })
+                              ) {
+                                run(`/reservations/${r.id}`, undefined, "DELETE");
+                              }
+                            }}
+                          >
+                            {r.status === "active" ? "End now" : "Cancel"}
+                          </Button>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Approved for GPU use. The GPU is attached for the duration of each booking; the VM
+                    restarts when a booking starts and ends.
+                  </p>
+                )
+              ) : null}
+            </SectionCard>
+          ) : null}
+        </div>
+      ) : null}
+
+      {tab === "saved" ? (
+        <div className="space-y-4">
+          <SnapshotsPanel vm={vm} run={run} own={own} />
+          {cluster?.hasBackups && own && (active || vm.status === "archived") ? (
+            <SectionCard
+              title={
+                <>
+                  <DatabaseBackup className="size-4 text-muted-foreground" aria-hidden /> Backups
+                </>
+              }
+              actions={
+                active ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      disabled={!idle}
+                      onClick={() => {
+                        setText("");
+                        setDialog("backup");
+                      }}
                     >
-                      {r.status}
-                    </StatusBadge>
-                    <span>
-                      {fmtDateTime(r.startAt)} → {fmtDateTime(r.endAt)}
-                    </span>
-                    {r.gpuId ? <span className="text-muted-foreground">{r.gpuId}</span> : null}
-                    {r.error ? <span className="text-destructive">{r.error}</span> : null}
-                    {r.status === "scheduled" || r.status === "active" ? (
+                      Back up now
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={!idle}
+                      onClick={async () => {
+                        if (
+                          await confirm({
+                            title: `Archive ${vm.name}?`,
+                            description:
+                              "It is shut down, backed up and removed from the cluster. You can restore it later.",
+                            confirm: "Archive",
+                          })
+                        )
+                          run(`/vms/${id}/archive`);
+                      }}
+                    >
+                      Archive
+                    </Button>
+                  </>
+                ) : null
+              }
+            >
+              {vm.backups.length ? (
+                <ul className="text-sm">
+                  {vm.backups.map((b) => (
+                    <li
+                      key={b.id}
+                      className="flex flex-wrap items-center gap-3 border-b border-border py-2 last:border-0"
+                    >
+                      <span>{fmtDateTime(b.createdAt)}</span>
+                      <span className="text-muted-foreground">{b.notes || "—"}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {fmtSize(b.sizeBytes)}
+                      </span>
                       <Button
                         variant="ghost"
                         size="sm"
                         className="ml-auto"
+                        disabled={vm.busy}
                         onClick={async () => {
-                          const now = r.status === "active";
-                          if (
-                            await confirm({
-                              title: now ? "End this booking now?" : "Cancel this booking?",
-                              description: now ? "The VM restarts without the GPU." : undefined,
-                              confirm: now ? "End now" : "Cancel booking",
-                            })
-                          ) {
-                            run(`/reservations/${r.id}`, undefined, "DELETE");
-                          }
+                          const ok = await confirm(
+                            active
+                              ? {
+                                  title: `Roll ${vm.name} back to this backup?`,
+                                  description: "Everything since then is lost.",
+                                  confirm: "Roll back",
+                                  destructive: true,
+                                }
+                              : { title: `Restore ${vm.name} from this backup?`, confirm: "Restore" },
+                          );
+                          if (ok) run(`/vms/${id}/restore`, { backupId: b.id });
                         }}
                       >
-                        {r.status === "active" ? "End now" : "Cancel"}
+                        {active ? "Roll back" : "Restore"}
                       </Button>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Approved for GPU use. The GPU is attached for the duration of each booking; the VM restarts
-                when a booking starts and ends.
-              </p>
-            )
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <Muted>No backups yet.</Muted>
+              )}
+            </SectionCard>
           ) : null}
-        </SectionCard>
+        </div>
       ) : null}
 
-      {cluster?.hasBackups && (active || vm.status === "archived") ? (
-        <SectionCard
-          title={
-            <>
-              <DatabaseBackup className="size-4 text-muted-foreground" aria-hidden /> Backups
-            </>
-          }
-          actions={
-            active ? (
-              <>
-                <Button
-                  variant="outline"
-                  disabled={!idle}
-                  onClick={() => {
-                    setText("");
-                    setDialog("backup");
-                  }}
-                >
-                  Back up now
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={!idle}
-                  onClick={async () => {
-                    if (
-                      await confirm({
-                        title: `Archive ${vm.name}?`,
-                        description:
-                          "It is shut down, backed up and removed from the cluster. You can restore it later.",
-                        confirm: "Archive",
-                      })
-                    )
-                      run(`/vms/${id}/archive`);
-                  }}
-                >
-                  Archive
-                </Button>
-              </>
-            ) : null
-          }
-        >
-          {vm.backups.length ? (
-            <ul className="text-sm">
-              {vm.backups.map((b) => (
-                <li
-                  key={b.id}
-                  className="flex flex-wrap items-center gap-3 border-b border-border py-2 last:border-0"
-                >
-                  <span>{fmtDateTime(b.createdAt)}</span>
-                  <span className="text-muted-foreground">{b.notes || "—"}</span>
-                  <span className="text-xs text-muted-foreground tabular-nums">{fmtSize(b.sizeBytes)}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="ml-auto"
-                    disabled={vm.busy}
-                    onClick={async () => {
-                      const ok = await confirm(
-                        active
-                          ? {
-                              title: `Roll ${vm.name} back to this backup?`,
-                              description: "Everything since then is lost.",
-                              confirm: "Roll back",
-                              destructive: true,
-                            }
-                          : { title: `Restore ${vm.name} from this backup?`, confirm: "Restore" },
-                      );
-                      if (ok) run(`/vms/${id}/restore`, { backupId: b.id });
-                    }}
-                  >
-                    {active ? "Roll back" : "Restore"}
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <Muted>No backups yet.</Muted>
-          )}
-        </SectionCard>
+      {tab === "activity" ? (
+        vm.jobs.length === 0 ? (
+          <Muted>Nothing has happened to this VM yet.</Muted>
+        ) : null
       ) : null}
-
-      {vm.jobs.length > 0 ? (
+      {tab === "activity" && vm.jobs.length > 0 ? (
         <SectionCard
           title={
             <>
@@ -783,31 +860,7 @@ export function VmDetail({ id }: { id: string }) {
         </SectionCard>
       ) : null}
 
-      {vm.status !== "provisioning" ? (
-        <div className="flex justify-end">
-          <Button
-            variant="danger"
-            disabled={vm.busy}
-            onClick={async () => {
-              const ok = await confirm(
-                exists
-                  ? {
-                      title: `Delete ${vm.name}?`,
-                      description: "The VM and its disks are destroyed. This cannot be undone.",
-                      confirm: "Delete VM",
-                      destructive: true,
-                    }
-                  : { title: `Remove ${vm.name} from your list?`, confirm: "Remove" },
-              );
-              if (!ok) return;
-              await run(`/vms/${id}`, undefined, "DELETE");
-              if (!exists) router.push("/");
-            }}
-          >
-            {exists ? "Delete VM" : "Remove"}
-          </Button>
-        </div>
-      ) : null}
+      {tab === "settings" ? <VmSettings vm={vm} run={run} onLogin={showLogin} /> : null}
 
       <Dialog open={dialog !== null} onOpenChange={(open) => !open && setDialog(null)}>
         <DialogContent>

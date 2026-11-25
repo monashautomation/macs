@@ -33,6 +33,7 @@ interface Draft {
   diskGb: number;
   portsText: string;
   afterInstall: string;
+  stepsText: string;
   enabled: boolean;
 }
 
@@ -46,6 +47,7 @@ const blank: Draft = {
   diskGb: 20,
   portsText: "",
   afterInstall: "",
+  stepsText: "",
   enabled: true,
 };
 
@@ -78,6 +80,10 @@ function Editor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
         diskGb: d.diskGb,
         ports: parsePorts(d.portsText),
         afterInstall: d.afterInstall,
+        steps: d.stepsText
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean),
         enabled: d.enabled,
       };
       return (
@@ -192,6 +198,19 @@ function Editor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
             placeholder="Open it and create the admin account."
           />
         </Field>
+        <Field
+          label="First steps (optional)"
+          htmlFor="setup-steps"
+          hint="One per line, up to 8. Shown as a checklist on the VM's page."
+        >
+          <Textarea
+            id="setup-steps"
+            rows={3}
+            value={d.stepsText}
+            onChange={(e) => set({ stepsText: e.target.value })}
+            placeholder={"Open it and create the admin account\nAdd your first project"}
+          />
+        </Field>
         <div className="flex items-center gap-2 text-sm">
           <Checkbox
             id="setup-enabled"
@@ -239,6 +258,7 @@ export function SetupsAdmin() {
       diskGb: s.diskGb,
       portsText: s.ports.map((p) => `${p.name}, ${p.port}, ${p.scheme || p.protocol}`).join("\n"),
       afterInstall: s.afterInstall,
+      stepsText: s.steps.join("\n"),
       enabled: s.enabled,
     });
   return (
@@ -267,6 +287,7 @@ export function SetupsAdmin() {
               </span>
               {s.category ? <Badge variant="secondary">{s.category}</Badge> : null}
               {!s.enabled ? <Badge variant="secondary">hidden</Badge> : null}
+              {!s.listed ? <Badge variant="outline">labs only</Badge> : null}
               <span className="text-xs text-muted-foreground tabular-nums">
                 {s.cores} vCPU · {fmtGB(s.memoryMb)} · {s.diskGb} GB
                 {s.ports.length ? ` · ports ${s.ports.map((p) => p.port).join(", ")}` : ""} · {s.vmCount} VM

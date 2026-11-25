@@ -11,6 +11,7 @@ import {
   ProxmoxError,
   type PveBackup,
   type PveConfig,
+  type PveSnapshot,
   type Timeframe,
 } from "./types";
 
@@ -23,6 +24,9 @@ interface Guest {
   config: PveConfig;
   started: number;
   firewall?: { options: Record<string, string | number>; rules: FirewallRule[] };
+  snapshots?: (PveSnapshot & { config: PveConfig })[];
+  /** Bumped whenever the "disk" is replaced, so tests can see a rollback happened. */
+  generation?: number;
 }
 type StoredBackup = PveBackup & { vmid: number; storage: string; guest: Guest };
 
@@ -462,7 +466,72 @@ export class MockProxmox implements ProxmoxDriver {
     return { exitCode: 0, output: "setup finished\n" };
   }
 
+  /** Passwords set through the agent, for tests to inspect. */
+  guestPasswords = new Map<number, { username: string; password: string }>();
+
+  async setGuestPassword(node: string, vmid: number, username: string, password: string) {
+    const g = this.get(node, vmid);
+    if (g.status !== "running") throw new ProxmoxError(`VM ${vmid} is not running`);
+    if (this.noAgent.has(vmid)) {
+      throw new ProxmoxError(
+        "the VM's guest agent did not respond; is qemu-guest-agent installed in the image?",
+      );
+    }
+    this.guestPasswords.set(vmid, { username, password });
+  }
+
+  // -- snapshots ----------------------------------------------------------
+
+  async snapshots(node: string, vmid: number) {
+    return (this.get(node, vmid).snapshots ?? []).map(({ name, description, time }) => ({
+      name,
+      description,
+      time,
+    }));
+  }
+
+  async snapshot(node: string, vmid: number, name: string, description = "") {
+    const g = this.get(node, vmid);
+    if (g.snapshots?.some((s) => s.name === name)) throw new ProxmoxError(`snapshot ${name} already exists`);
+    await this.work();
+    g.snapshots = [
+      ...(g.snapshots ?? []),
+      { name, description, time: Math.floor(Date.now() / 1000), config: clone(g.config) },
+    ];
+    this.save();
+  }
+
+  async rollback(node: string, vmid: number, name: string) {
+    const g = this.get(node, vmid);
+    const snap = g.snapshots?.find((s) => s.name === name);
+    if (!snap) throw new ProxmoxError(`snapshot ${name} does not exist`);
+    await this.work();
+    g.config = clone(snap.config);
+    g.status = "stopped";
+    g.generation = (g.generation ?? 0) + 1;
+    this.save();
+  }
+
+  async deleteSnapshot(node: string, vmid: number, name: string) {
+    const g = this.get(node, vmid);
+    if (!g.snapshots?.some((s) => s.name === name)) throw new ProxmoxError(`snapshot ${name} does not exist`);
+    await this.work();
+    g.snapshots = g.snapshots.filter((s) => s.name !== name);
+    this.save();
+  }
+
   // -- console -----------------------------------------------------------
+
+  terminals: MockTerminal[] = [];
+
+  async openTerminal(node: string, vmid: number): Promise<ConsoleStream> {
+    const g = this.get(node, vmid);
+    if (g.status !== "running") throw new ProxmoxError(`VM ${vmid} is not running`);
+    if (!("serial0" in g.config)) throw new ProxmoxError(`VM ${vmid} has no serial port`);
+    const t = new MockTerminal(g.name, String(g.config.ciuser ?? "user"));
+    this.terminals.push(t);
+    return t.stream;
+  }
 
   async openConsole(node: string, vmid: number): Promise<ConsoleStream> {
     const g = this.get(node, vmid);
@@ -470,6 +539,47 @@ export class MockProxmox implements ProxmoxDriver {
     const c = new MockConsole(g.name);
     this.consoles.push(c);
     return c.stream;
+  }
+}
+
+/** A pretend shell on a serial line: echoes what is typed and answers each line. */
+export class MockTerminal {
+  size: [number, number] = [80, 24];
+  closed = false;
+  readonly stream: ConsoleStream;
+  private line = "";
+
+  constructor(name: string, user: string) {
+    const prompt = `${user}@${name}:~$ `;
+    const out = bufferedStream(
+      "",
+      (data) => {
+        for (const ch of data.toString("utf8")) {
+          if (ch === "\r" || ch === "\n") {
+            const said = this.line.trim();
+            this.line = "";
+            out.push(Buffer.from(`\r\n${said ? `mock shell: ${said}\r\n` : ""}${prompt}`));
+          } else if (ch === "\u007f") {
+            if (this.line) {
+              this.line = this.line.slice(0, -1);
+              out.push(Buffer.from("\b \b"));
+            }
+          } else if (ch >= " ") {
+            this.line += ch;
+            out.push(Buffer.from(ch));
+          }
+        }
+      },
+      () => {
+        this.closed = true;
+        out.end();
+      },
+    );
+    out.stream.resize = (cols, rows) => {
+      this.size = [cols, rows];
+    };
+    this.stream = out.stream;
+    out.push(Buffer.from(`${name} (mock serial terminal)\r\n\r\n${prompt}`));
   }
 }
 

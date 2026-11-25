@@ -40,4 +40,8 @@ node scripts/mock-authentik.mjs   # dev-only sign-in; with MACS_CONFIG=./config.
 - Cluster config keys are snake_case (they mirror the YAML); everything else is camelCase.
 - Setup scripts run as root in members' VMs: only admin routes may read or write `Setup.script`, and member-facing output must never include it.
 - A generated VM password is returned once from create and passed to provisioning through `core.setIntent`; never write it to the database, a job log or the audit log.
+- The same goes for a rebuild's or reset's password and a lab's secret (`labSecret` derives it; it is not stored). Passwords reach a guest only through `cipassword` or `setGuestPassword`, never inside a script.
+- `getVm(who, id)` means owner or admin. Pass `"use"` only for what someone a VM is shared with may do: view, power, console/terminal, extend, add a key.
+- Anything typed by a user that ends up in a guest script (SSH keys) is rebuilt from validated parts first (`normalizeKeys`).
+- Tell people about things that happen while they are away with `notify`/`notifyVm`; identify them to the webhook by `sub`, never email.
 - Never point tests or `config.dev.yaml` at a real cluster.

@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import type { Core, Log } from "@/server/core";
 import { hostpciEntries, ProxmoxError, type PveBackup } from "@/server/proxmox/types";
 import { detachGpu } from "./gpus";
+import { keepPassthrough } from "./lifecycle";
 import { applyNetworkPolicy } from "./network";
 import { closeReservations, locate, pickNode } from "./vms";
 
@@ -90,11 +91,7 @@ export async function restoreVm(core: Core, vmId: string, volid: string, log: Lo
   }
   // The backup carries the config from when it was taken; passthrough must
   // reflect today's GPU assignment instead.
-  const stale = hostpciEntries(await drv.vmConfig(node, vmid));
-  if (JSON.stringify(stale) !== JSON.stringify(keep)) {
-    if (Object.keys(stale).length) await drv.setConfig(node, vmid, { delete: Object.keys(stale).join(",") });
-    if (Object.keys(keep).length) await drv.setConfig(node, vmid, keep);
-  }
+  await keepPassthrough(drv, node, vmid, keep);
   core.invalidate(cluster.id);
   // Likewise the firewall: a backup must not resurrect old published ports.
   await db.vm.update({ where: { id: vmId }, data: { status: "active", error: "" } });

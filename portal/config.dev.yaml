@@ -60,6 +60,10 @@ clusters:
     connect_domain: netbird.selfhosted
     iso_storage: local
     setups: true # offer the ready-made setup library (one-click installs)
+    labs: true # offer multi-VM labs (VMs deployed together that can reach each other)
+    lifetime_days: 30 # VMs are shut down (never deleted) after this unless extended; 0 = never
+    expiry_warning_days: 3
+    max_snapshots: 3 # per VM; 0 = off
     # default_image: ubuntu                # image setups install on; default: first Ubuntu/Debian template
     network:
       label: Homelab network

@@ -12,6 +12,7 @@ import { diskKey, diskSizeGb, findVm, ProxmoxError, type Timeframe } from "@/ser
 import { attachGpu, detachGpu, gpuState } from "@/server/services/gpus";
 import { adminImageOut, getImage } from "@/server/services/images";
 import { applyNetworkPolicy } from "@/server/services/network";
+import { notifyVm } from "@/server/services/notify";
 import { SetupPort, setupOut } from "@/server/services/setups";
 import { provision, VM_LIVE } from "@/server/services/vms";
 import { busyVmIds, liveViews, serviceOut, vmOut } from "@/server/views";
@@ -72,6 +73,11 @@ export async function reviewVm(who: Who, id: string, body: z.infer<typeof Review
     if (!body.approve) {
       await db.vm.update({ where: { id }, data: { ...reviewed, status: "rejected", gpuAccess: "none" } });
       await c.audit(who.id, "reject-vm", target, body.note);
+      await notifyVm(vm.id, {
+        kind: "vm.rejected",
+        title: `Your request for ${vm.name} was declined`,
+        body: body.note,
+      });
       return { jobId: null };
     }
     if (!c.findCluster(vm.clusterId)) throw new HttpError(409, "the cluster is no longer configured");
@@ -83,6 +89,11 @@ export async function reviewVm(who: Who, id: string, body: z.infer<typeof Review
     });
     if (!count) throw new HttpError(409, "someone else already reviewed this request");
     await c.audit(who.id, "approve-vm", target, `gpu=${gpuAccess} ${body.note}`.trim());
+    await notifyVm(vm.id, {
+      kind: "vm.approved",
+      title: `Your request for ${vm.name} was approved`,
+      body: body.note || "It is being created now.",
+    });
     return { jobId: await startJob("provision", vm, who, (log) => provision(c, vm.id, log)) };
   }
   if (vm.status === "active" && vm.gpuAccess === "requested") {
@@ -91,6 +102,11 @@ export async function reviewVm(who: Who, id: string, body: z.infer<typeof Review
       data: { ...reviewed, gpuAccess: body.approve ? "approved" : "none" },
     });
     await c.audit(who.id, body.approve ? "approve-gpu-access" : "reject-gpu-access", target, body.note);
+    await notifyVm(vm.id, {
+      kind: body.approve ? "gpu.approved" : "gpu.rejected",
+      title: body.approve ? `${vm.name} can now book GPU time` : `GPU access for ${vm.name} was declined`,
+      body: body.note,
+    });
     return { jobId: null };
   }
   throw new HttpError(409, "nothing to review on this VM");
@@ -125,6 +141,13 @@ export async function reviewService(who: Who, id: string, body: z.infer<typeof S
     `${svc.vm.clusterId}/${svc.vm.name}`,
     `${svc.name} ${svc.protocol}/${svc.port}`,
   );
+  await notifyVm(svc.vmId, {
+    kind: body.approve ? "service.published" : "service.rejected",
+    title: body.approve
+      ? `${svc.name} on ${svc.vm.name} is now published`
+      : `Publishing ${svc.name} on ${svc.vm.name} was declined`,
+    body: body.note,
+  });
 }
 
 export async function allServices() {
@@ -426,6 +449,8 @@ export const SetupBody = z.object({
   diskGb: z.number().int().min(8).default(20),
   ports: z.array(SetupPort).max(8).default([]),
   afterInstall: z.string().trim().max(1000).default(""),
+  /** First steps shown as a checklist on the VM's page. */
+  steps: z.array(z.string().trim().min(1).max(200)).max(8).default([]),
   enabled: z.boolean().default(true),
 });
 
@@ -434,6 +459,8 @@ const adminSetupOut = (s: Setup, vmCount = 0) => ({
   dbId: s.id,
   script: s.script,
   enabled: s.enabled,
+  /** false = deployed only by lab blueprints. */
+  listed: s.listed,
   vmCount,
 });
 

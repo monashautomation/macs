@@ -72,6 +72,10 @@ export function vmOut(vm: VmRow, live: LiveView, busy: boolean) {
     reviewedBy: vm.reviewedBy ? toPublicUser(vm.reviewedBy) : null,
     error: vm.error,
     busy,
+    expiresAt: vm.expiresAt?.toISOString() ?? null,
+    expired: vm.expired,
+    schedule: { start: vm.autoStart, stop: vm.autoStop, timeZone: vm.scheduleTz },
+    labId: vm.labId,
     createdAt: vm.createdAt.toISOString(),
   };
 }

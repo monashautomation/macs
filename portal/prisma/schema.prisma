@@ -23,14 +23,17 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  sessions     Session[]
-  accounts     Account[]
-  profile      Profile?
-  vms          Vm[]          @relation("VmOwner")
-  reviewed     Vm[]          @relation("VmReviewer")
-  reservations Reservation[]
-  jobs         Job[]
-  audits       Audit[]
+  sessions      Session[]
+  accounts      Account[]
+  profile       Profile?
+  vms           Vm[]           @relation("VmOwner")
+  reviewed      Vm[]           @relation("VmReviewer")
+  reservations  Reservation[]
+  jobs          Job[]
+  audits        Audit[]
+  shares        VmShare[]
+  labs          Lab[]
+  notifications Notification[]
 
   @@map("users")
 }
@@ -111,33 +114,50 @@ model Profile {
 /// status: pending -> (rejected | provisioning) -> active -> (archived | deleted); error on failed provisioning.
 /// gpuAccess: none -> requested -> approved.
 model Vm {
-  id            String   @id @default(cuid())
-  clusterId     String
+  id             String    @id @default(cuid())
+  clusterId      String
   /// Proxmox VMID; null until provisioned.
-  vmid          Int?
-  name          String
-  ownerId       String
-  owner         User     @relation("VmOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  vmid           Int?
+  name           String
+  ownerId        String
+  owner          User      @relation("VmOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   /// Slug of the library image it was deployed from.
-  imageSlug     String   @default("")
-  cores         Int
-  memoryMb      Int
-  diskGb        Int
-  sshPublicKey  String   @default("")
-  status        String   @default("pending")
-  gpuAccess     String   @default("none")
-  justification String   @default("")
-  reviewNote    String   @default("")
-  reviewedById  String?
-  reviewedBy    User?    @relation("VmReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
-  error         String   @default("")
+  imageSlug      String    @default("")
+  cores          Int
+  memoryMb       Int
+  diskGb         Int
+  sshPublicKey   String    @default("")
+  status         String    @default("pending")
+  gpuAccess      String    @default("none")
+  justification  String    @default("")
+  reviewNote     String    @default("")
+  reviewedById   String?
+  reviewedBy     User?     @relation("VmReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  error          String    @default("")
   /// Slug of the setup installed on it ("" = none).
-  setupSlug     String   @default("")
+  setupSlug      String    @default("")
   /// none | pending | installing | done | failed
-  setupStatus   String   @default("none")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  setupStatus    String    @default("none")
+  /// When the VM is shut down unless its owner extends it (null = never).
+  expiresAt      DateTime?
+  expiryWarnedAt DateTime?
+  /// Shut down because it expired; it cannot be started until extended.
+  expired        Boolean   @default(false)
+  /// Daily power schedule, "HH:MM" in scheduleTz ("" = off).
+  autoStart      String    @default("")
+  autoStop       String    @default("")
+  scheduleTz     String    @default("UTC")
+  /// Local date (YYYY-MM-DD) the schedule last fired, so each fires once a day.
+  lastAutoStart  String    @default("")
+  lastAutoStop   String    @default("")
+  /// Lab this VM was deployed as part of, and its role in it.
+  labId          String?
+  lab            Lab?      @relation(fields: [labId], references: [id], onDelete: SetNull)
+  labRole        String    @default("")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
+  shares       VmShare[]
   reservations Reservation[]
   services     Service[]
   backups      Backup[]
@@ -145,7 +165,57 @@ model Vm {
 
   @@index([ownerId])
   @@index([clusterId, status])
+  @@index([labId])
   @@map("vms")
+}
+
+/// Someone the owner lets use a VM: see it, power it, open its console.
+/// Owner-only actions (delete, rebuild, resize, sharing) stay with the owner.
+model VmShare {
+  id        String   @id @default(cuid())
+  vmId      String
+  vm        Vm       @relation(fields: [vmId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([vmId, userId])
+  @@index([userId])
+  @@map("vm_shares")
+}
+
+/// Several VMs deployed together from a blueprint, allowed to reach each other.
+model Lab {
+  id        String   @id @default(cuid())
+  clusterId String
+  name      String
+  blueprint String
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+  vms       Vm[]
+
+  @@index([ownerId])
+  @@map("labs")
+}
+
+/// Something a person should know about. Shown in the app; also pushed to the
+/// notification webhook (deliveredAt) when one is configured.
+model Notification {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind        String
+  title       String
+  body        String    @default("")
+  /// App path to open, e.g. /vms/abc.
+  link        String    @default("")
+  createdAt   DateTime  @default(now())
+  readAt      DateTime?
+  deliveredAt DateTime?
+
+  @@index([userId, createdAt])
+  @@map("notifications")
 }
 
 /// An entry in a cluster's image library: a Proxmox template to clone, or an
@@ -180,22 +250,26 @@ model Image {
 /// size it needs and the ports it serves. Curated by Systems & Infra: these
 /// scripts run with full rights in people's VMs.
 model Setup {
-  id          String   @id @default(cuid())
-  slug        String   @unique
-  name        String
-  description String   @default("")
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  name         String
+  description  String   @default("")
   /// Free-text grouping shown in the library, e.g. "Containers", "Media".
-  category    String   @default("")
-  script      String
-  cores       Int      @default(2)
-  memoryMb    Int      @default(2048)
-  diskGb      Int      @default(20)
+  category     String   @default("")
+  script       String
+  cores        Int      @default(2)
+  memoryMb     Int      @default(2048)
+  diskGb       Int      @default(20)
   /// [{ name, port, protocol, scheme }]: offered as public services after install.
-  ports       Json     @default("[]")
+  ports        Json     @default("[]")
   /// Shown to the owner once it is installed ("Open http://… and create the admin account").
-  afterInstall String  @default("")
-  enabled     Boolean  @default(true)
-  createdAt   DateTime @default(now())
+  afterInstall String   @default("")
+  /// First steps shown as a checklist on the VM page: string[].
+  steps        Json     @default("[]")
+  /// false = only used by lab blueprints, hidden from the library.
+  listed       Boolean  @default(true)
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now())
 
   @@map("setups")
 }
