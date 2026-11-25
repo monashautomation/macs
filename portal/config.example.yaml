@@ -82,6 +82,8 @@ clusters:
     labs: true # offer multi-VM labs (VMs deployed together that can reach each other)
     lifetime_days: 30 # VMs are shut down (never deleted) after this unless extended; 0 = never
     expiry_warning_days: 3
+    idle_days: 5 # warn, then shut down, VMs with next to no CPU or network use for this long; 0 = off
+    idle_grace_days: 2
     max_snapshots: 3 # per VM; 0 = off
     # default_image: ubuntu                # image setups install on; default: first Ubuntu/Debian template
     network:

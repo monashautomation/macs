@@ -146,6 +146,12 @@ model Vm {
   /// Daily power schedule, "HH:MM" in scheduleTz ("" = off).
   autoStart      String    @default("")
   autoStop       String    @default("")
+  /// Days the schedule applies, ISO numbers 1 (Mon) to 7 (Sun), e.g. "12345". "" = every day.
+  scheduleDays   String    @default("")
+  /// Set when the owner was told the VM looks idle; it is shut down a few days later if still idle.
+  idleWarnedAt   DateTime?
+  /// "Keep running": idle checks skip this VM until then.
+  idleCheckAfter DateTime?
   scheduleTz     String    @default("UTC")
   /// Local date (YYYY-MM-DD) the schedule last fired, so each fires once a day.
   lastAutoStart  String    @default("")

@@ -61,7 +61,7 @@ import {
   VmStatus,
 } from "./common";
 import { OsIcon } from "./os-icon";
-import { Expiry, FirstSteps, SnapshotsPanel, VmSettings } from "./vm-manage";
+import { Expiry, FirstSteps, IdleNotice, SnapshotsPanel, VmSettings } from "./vm-manage";
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -518,6 +518,7 @@ export function VmDetail({ id }: { id: string }) {
       ) : null}
       {vm.status === "error" ? <Note tone="danger">Provisioning failed: {vm.error}</Note> : null}
       <Expiry vm={vm} run={run} />
+      <IdleNotice vm={vm} run={run} />
       <FirstLogin key={loginShown} vmId={vm.id} />
       {vm.setup ? <SetupStatus vm={vm} onRetry={() => run(`/vms/${id}/setup`)} /> : null}
       {vm.status === "archived" ? (
@@ -579,6 +580,13 @@ export function VmDetail({ id }: { id: string }) {
                   {vm.schedule.stop ? `off ${vm.schedule.stop}` : ""}
                   {vm.schedule.stop && vm.schedule.start ? " · " : ""}
                   {vm.schedule.start ? `on ${vm.schedule.start}` : ""}
+                  {vm.schedule.days.join("") === "12345"
+                    ? " · weekdays"
+                    : vm.schedule.days.join("") === "67"
+                      ? " · weekends"
+                      : vm.schedule.days.length
+                        ? " · some days"
+                        : ""}
                 </Fact>
               ) : null}
             </dl>

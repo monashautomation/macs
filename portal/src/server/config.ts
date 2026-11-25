@@ -131,6 +131,17 @@ const cluster = z
     lifetime_days: z.number().int().min(0).default(0),
     /** How long before expiry the owner is warned. */
     expiry_warning_days: z.number().int().min(1).default(3),
+    /**
+     * Shut down VMs that have done nothing for this many days (1-7; 0 = off).
+     * The owner is warned first and can keep the VM running. Nothing is deleted.
+     */
+    idle_days: z.number().int().min(0).max(7).default(0),
+    /** Days between the idle warning and the shut-down. */
+    idle_grace_days: z.number().int().min(1).default(2),
+    /** A VM is idle while its CPU stays under this (percent of its cores)... */
+    idle_cpu_percent: z.number().positive().max(50).default(2),
+    /** ...and its network traffic under this (KB/s, in plus out). */
+    idle_network_kbps: z.number().positive().default(20),
     /** Snapshots a VM may hold at once. 0 = snapshots off. */
     max_snapshots: z.number().int().min(0).default(3),
     network: network.default(() => network.parse({})),

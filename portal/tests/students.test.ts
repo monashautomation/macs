@@ -7,7 +7,7 @@ import { startConsoleServer } from "@/server/console-server";
 import * as infra from "@/server/handlers/infra";
 import * as m from "@/server/handlers/manage";
 import * as h from "@/server/handlers/vms";
-import { localClock } from "@/server/services/housekeeping";
+import { idlePass, localClock } from "@/server/services/housekeeping";
 import { labSecret } from "@/server/services/labs";
 import { expectHttp, hasDb, KEY, NEIGHBOUR, NETBIRD, Portal } from "./portal";
 
@@ -155,6 +155,76 @@ describe.skipIf(!hasDb)("student tools", () => {
     expect(guest.status).toBe("running");
     const row = await db.vm.findUniqueOrThrow({ where: { id: vm.id } });
     expect(row.lastAutoStart).toBe(localClock(new Date(), "Australia/Melbourne").date);
+  });
+
+  it("keeps a weekday-only schedule off the other days", async () => {
+    const sam = p.who("sam");
+    const vm = await p.makeVm("sam", "homelab", "weekdays", false);
+    const guest = p.homelab.guests.get(vm.vmid!)!;
+    const today = localClock(new Date(), "UTC").weekday;
+    expect(today).toBeGreaterThanOrEqual(1);
+    expect(localClock(new Date("2026-11-25T12:00:00Z"), "UTC").weekday).toBe(3); // a Wednesday
+    expect(localClock(new Date("2026-11-29T20:00:00Z"), "Australia/Melbourne").weekday).toBe(1); // Monday there
+    const others = [1, 2, 3, 4, 5, 6, 7].filter((d) => d !== today);
+    await m.setSchedule(sam, vm.id, { stop: "00:00", timeZone: "UTC", days: others });
+    await db.vm.update({ where: { id: vm.id }, data: { lastAutoStop: "" } });
+    await p.tick();
+    expect(guest.status).toBe("running"); // today is not one of its days
+    expect((await h.vmDetail(sam, vm.id)).schedule.days).toEqual(others);
+
+    await m.setSchedule(sam, vm.id, { stop: "00:00", timeZone: "UTC", days: [today] });
+    await db.vm.update({ where: { id: vm.id }, data: { lastAutoStop: "" } });
+    await p.tick();
+    expect(guest.status).toBe("stopped");
+    await m.setSchedule(sam, vm.id, { stop: "00:00", timeZone: "UTC", days: [1, 2, 3, 4, 5, 6, 7] });
+    expect((await h.vmDetail(sam, vm.id)).schedule.days).toEqual([]); // all seven = every day
+  });
+
+  it("warns about idle VMs, shuts them down after the grace period, and can be told to leave one alone", async () => {
+    const sam = p.who("sam");
+    const idle = await p.makeVm("sam", "homelab", "sleepy", false);
+    const busy = await p.makeVm("sam", "homelab", "worker", false);
+    const now = new Date();
+    p.homelab.idleVms.add(idle.vmid!);
+    await idlePass(p.core, now, true);
+    expect(await notes("sam")).not.toContain("vm.idle"); // only just started: not enough history
+    for (const v of [idle, busy]) p.homelab.guests.get(v.vmid!)!.started = Date.now() - 5 * 86_400_000;
+
+    await idlePass(p.core, now, true);
+    await idlePass(p.core, now, true);
+    expect((await notes("sam")).filter((k) => k === "vm.idle")).toHaveLength(1);
+    expect((await h.vmDetail(sam, idle.id)).idleSince).not.toBeNull();
+    expect((await h.vmDetail(sam, busy.id)).idleSince).toBeNull();
+
+    // "Keep running" clears the warning and holds off further checks.
+    await m.keepRunning(sam, idle.id);
+    await idlePass(p.core, now, true);
+    expect((await h.vmDetail(sam, idle.id)).idleSince).toBeNull();
+
+    // Once that lapses: warned again, then shut down a grace period later.
+    await db.vm.update({ where: { id: idle.id }, data: { idleCheckAfter: new Date(now.getTime() - 1000) } });
+    await idlePass(p.core, now, true);
+    await idlePass(p.core, now, true);
+    expect(p.homelab.guests.get(idle.vmid!)!.status).toBe("running"); // still inside the grace period
+    await db.vm.update({
+      where: { id: idle.id },
+      data: { idleWarnedAt: new Date(now.getTime() - 1.1 * 86_400_000) },
+    });
+    await idlePass(p.core, now, true);
+    expect(p.homelab.guests.get(idle.vmid!)!.status).toBe("stopped");
+    expect(p.homelab.guests.get(busy.vmid!)!.status).toBe("running");
+    expect((await notes("sam")).filter((k) => k === "vm.idle")).toHaveLength(2);
+    expect(await notes("sam")).toContain("vm.idle-stopped");
+    await p.run(h.powerVm(sam, idle.id, "start")); // nothing stops them starting it again
+    expect((await h.vmDetail(sam, idle.id)).idleSince).toBeNull();
+
+    // A VM that picks up work again is un-flagged.
+    p.homelab.guests.get(idle.vmid!)!.started = Date.now() - 5 * 86_400_000;
+    await idlePass(p.core, now, true);
+    expect((await h.vmDetail(sam, idle.id)).idleSince).not.toBeNull();
+    p.homelab.idleVms.delete(idle.vmid!);
+    await idlePass(p.core, now, true);
+    expect((await h.vmDetail(sam, idle.id)).idleSince).toBeNull();
   });
 
   it("shares a VM for use without handing over ownership", async () => {

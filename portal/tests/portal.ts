@@ -44,6 +44,8 @@ clusters:
     setups: true
     labs: true
     lifetime_days: 30
+    idle_days: 2
+    idle_grace_days: 1
     max_snapshots: 2
     iso_storage: isos
     quota: { max_vms: 2, max_cores: 4 }

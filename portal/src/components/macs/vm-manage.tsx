@@ -27,7 +27,7 @@ import {
   useSession,
   useSnapshots,
 } from "@/lib/client";
-import { Field, fmtDateTime, Muted, Note } from "./common";
+import { Field, fmtDateTime, Muted, Note, Pick } from "./common";
 
 type Run = (path: string, body?: unknown, method?: string) => Promise<unknown>;
 const DAY = 86_400_000;
@@ -54,6 +54,28 @@ export function Expiry({ vm, run }: { vm: Detail; run: Run }) {
     </div>
   );
 }
+
+/** Shown while the VM is flagged idle: what will happen, and how to stop it. */
+export function IdleNotice({ vm, run }: { vm: Detail; run: Run }) {
+  if (!vm.idleSince || vm.power !== "running") return null;
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-md bg-warning-bg px-3 py-2 text-sm text-warning">
+      <span className="flex-1">
+        This VM looks idle: it has used almost no CPU or network for days. It will be shut down soon to free
+        the resources (nothing is deleted, and you can start it again). Still need it running?
+      </span>
+      <Button variant="outline" size="sm" onClick={() => run(`/vms/${vm.id}/keep`)}>
+        Keep running
+      </Button>
+    </div>
+  );
+}
+
+const DAY_SETS = [
+  { value: "", label: "Every day" },
+  { value: "12345", label: "Weekdays (Mon to Fri)" },
+  { value: "67", label: "Weekends" },
+];
 
 /** A short checklist for a new VM. Ticks are kept in this browser. */
 export function FirstSteps({ vm }: { vm: Detail }) {
@@ -341,9 +363,13 @@ function SizePanel({ vm, run }: { vm: Detail; run: Run }) {
 function SchedulePanel({ vm, run }: { vm: Detail; run: Run }) {
   const [start, setStart] = useState(vm.schedule.start);
   const [stop, setStop] = useState(vm.schedule.stop);
+  const savedDays = vm.schedule.days.join("");
+  const [days, setDays] = useState(savedDays);
+  const preset = DAY_SETS.some((d) => d.value === days);
+  const body = (s: string, e: string) => ({ start: s, stop: e, timeZone: here, days: [...days].map(Number) });
   const here = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const on = vm.schedule.start || vm.schedule.stop;
-  const changed = start !== vm.schedule.start || stop !== vm.schedule.stop;
+  const changed = start !== vm.schedule.start || stop !== vm.schedule.stop || days !== savedDays;
   return (
     <SectionCard
       title={
@@ -353,22 +379,32 @@ function SchedulePanel({ vm, run }: { vm: Detail; run: Run }) {
       }
     >
       <p className="text-sm text-muted-foreground">
-        Shut the VM down and start it again at set times every day, for example overnight. Leave a time empty
-        to skip it.
+        Shut the VM down and start it again at set times, for example overnight or only on weekdays. Leave a
+        time empty to skip it.
       </p>
-      <div className="mt-3 grid max-w-md grid-cols-2 gap-3">
+      <div className="mt-3 grid max-w-2xl grid-cols-2 gap-3 sm:grid-cols-3">
         <Field label="Shut down at" htmlFor="sched-stop">
           <Input id="sched-stop" type="time" value={stop} onChange={(e) => setStop(e.target.value)} />
         </Field>
         <Field label="Start at" htmlFor="sched-start">
           <Input id="sched-start" type="time" value={start} onChange={(e) => setStart(e.target.value)} />
         </Field>
+        <Field label="On">
+          <Pick
+            value={preset ? days || "all" : "custom"}
+            onChange={(v) => v !== "custom" && setDays(v === "all" ? "" : v)}
+            options={[
+              ...DAY_SETS.map((d) => ({ value: d.value || "all", label: d.label })),
+              ...(preset ? [] : [{ value: "custom", label: "Custom days" }]),
+            ]}
+          />
+        </Field>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <Button
           variant="outline"
-          disabled={!changed}
-          onClick={() => run(`/vms/${vm.id}/schedule`, { start, stop, timeZone: here }, "PUT")}
+          disabled={!changed || (!start && !stop)}
+          onClick={() => run(`/vms/${vm.id}/schedule`, body(start, stop), "PUT")}
         >
           Save schedule
         </Button>
@@ -378,7 +414,7 @@ function SchedulePanel({ vm, run }: { vm: Detail; run: Run }) {
             onClick={() => {
               setStart("");
               setStop("");
-              run(`/vms/${vm.id}/schedule`, { start: "", stop: "", timeZone: here }, "PUT");
+              run(`/vms/${vm.id}/schedule`, body("", ""), "PUT");
             }}
           >
             Turn off
@@ -643,7 +679,11 @@ export function VmSettings({ vm, run, onLogin }: { vm: Detail; run: Run; onLogin
       {active ? <LoginPanel vm={vm} run={run} own={own} onLogin={onLogin} /> : null}
       {own && active ? <SizePanel key={`${vm.cores}-${vm.memoryMb}-${vm.diskGb}`} vm={vm} run={run} /> : null}
       {own && active ? (
-        <SchedulePanel key={`${vm.schedule.start}-${vm.schedule.stop}`} vm={vm} run={run} />
+        <SchedulePanel
+          key={`${vm.schedule.start}-${vm.schedule.stop}-${vm.schedule.days.join("")}`}
+          vm={vm}
+          run={run}
+        />
       ) : null}
       {own && vm.status !== "archived" ? <SharingPanel vm={vm} run={run} /> : null}
       {own && vm.status !== "provisioning" ? <DangerPanel vm={vm} run={run} onLogin={onLogin} /> : null}

@@ -416,17 +416,21 @@ export class MockProxmox implements ProxmoxDriver {
       .map((time) => ({ time, a: wave(time, 5), b: wave(time, 11), c: wave(time, 3) }));
   }
 
+  /** Test switch: VMIDs whose usage history is flat. */
+  idleVms = new Set<number>();
+
   async vmMetrics(node: string, vmid: number, timeframe: Timeframe) {
     const g = this.get(node, vmid);
     if (g.status !== "running") return [];
     const maxmem = Number(g.config.memory ?? 0) * 1024 * 1024;
+    const idle = this.idleVms.has(vmid);
     return this.series(vmid, timeframe, Math.floor(g.started / 1000)).map(({ time, a, b, c }) => ({
       time,
-      cpu: 0.05 + 0.55 * a * b,
+      cpu: idle ? 0.004 : 0.05 + 0.55 * a * b,
       mem: maxmem * (0.3 + 0.4 * b),
       maxmem,
-      netin: 40_000 + 900_000 * c * a,
-      netout: 15_000 + 300_000 * c * b,
+      netin: idle ? 300 : 40_000 + 900_000 * c * a,
+      netout: idle ? 200 : 15_000 + 300_000 * c * b,
     }));
   }
 

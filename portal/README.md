@@ -225,8 +225,16 @@ Each VM page has four tabs: Overview, Snapshots (& backups), Settings, Activity.
   `expiry_warning_days` ahead, then the VM is shut down, never deleted, and
   cannot be started until someone extends it (one click, a full lifetime from
   now).
-- **Power schedule**: a daily shut-down and/or start time in the owner's time
-  zone. A VM with an active GPU booking is not stopped until the booking ends.
+- **Idle detection** (`idle_days`, 1-7, 0 = off): hourly, a running VM whose
+  CPU stayed under `idle_cpu_percent` and network under `idle_network_kbps`
+  for that whole period (Proxmox's usage history) is flagged and its owner
+  notified. If it is still idle `idle_grace_days` later it is shut down; it
+  can be started again straight away. "Keep running" on the VM's page clears
+  the flag and holds off checks for two weeks. VMs with an active GPU booking
+  are skipped.
+- **Power schedule**: a shut-down and/or start time in the owner's time zone,
+  every day, on weekdays or on weekends (the API takes any set of days). A VM
+  with an active GPU booking is not stopped until the booking ends.
 - **Login**: SSH keys are added to the image's login account through the guest
   agent, after being rebuilt from their parts so nothing but
   `type base64 comment` reaches the shell. **Reset password** generates a
@@ -309,7 +317,8 @@ at the repo root and the ArgoCD source path is `portal/deploy/extra`.
 - The snapshot, `termproxy` terminal and `set-user-password` calls, the lab
   setups and the notification webhook have only run against the mock.
   `termproxy` with an API token in particular needs checking on a real node.
-- No idle detection (expiry is by date), no weekday-only power schedules.
+- Idle detection judges CPU and network only and has only seen the mock's
+  synthetic history; tune the thresholds on real VMs before relying on it.
 - No in-browser SSH/RDP (console and serial terminal only), no
   NetBird API integration, no per-VM first-boot snippets (NetBird join is a
   static vendor snippet per image).

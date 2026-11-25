@@ -200,19 +200,32 @@ export async function extend(who: Who, id: string) {
   return { expiresAt: expiresAt.toISOString() };
 }
 
+/** "Keep running": the owner says an idle-looking VM is in use. Idle checks leave it alone for two weeks. */
+export async function keepRunning(who: Who, id: string) {
+  const vm = await getVm(who, id, "use");
+  active(vm);
+  const idleCheckAfter = new Date(Date.now() + 14 * 86_400_000);
+  await db.vm.update({ where: { id: vm.id }, data: { idleWarnedAt: null, idleCheckAfter } });
+  await core().audit(who.id, "keep-running", `${vm.clusterId}/${vm.name}`);
+}
+
 const clock = z.union([z.literal(""), z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "use HH:MM")]);
 export const Schedule = z.object({
   start: clock.default(""),
   stop: clock.default(""),
   timeZone: z.string().max(64).default("UTC"),
+  /** ISO weekdays the schedule applies on, 1 (Mon) to 7 (Sun). Empty = every day. */
+  days: z.array(z.number().int().min(1).max(7)).max(7).default([]),
 });
 
-export async function setSchedule(who: Who, id: string, body: z.infer<typeof Schedule>) {
+export async function setSchedule(who: Who, id: string, input: z.input<typeof Schedule>) {
+  const body = Schedule.parse(input);
   const vm = await getVm(who, id);
   active(vm);
   if (!validTimeZone(body.timeZone)) throw new HttpError(422, "unknown time zone");
   if (body.start && body.start === body.stop)
     throw new HttpError(422, "start and stop cannot be the same time");
+  const days = [...new Set(body.days)].sort();
   // A time that has already passed today first fires tomorrow.
   const { date, time } = localClock(new Date(), body.timeZone);
   await db.vm.update({
@@ -221,6 +234,7 @@ export async function setSchedule(who: Who, id: string, body: z.infer<typeof Sch
       autoStart: body.start,
       autoStop: body.stop,
       scheduleTz: body.timeZone,
+      scheduleDays: days.length === 7 ? "" : days.join(""),
       lastAutoStart: body.start && time >= body.start ? date : "",
       lastAutoStop: body.stop && time >= body.stop ? date : "",
     },
@@ -229,7 +243,7 @@ export async function setSchedule(who: Who, id: string, body: z.infer<typeof Sch
     who.id,
     "set-schedule",
     `${vm.clusterId}/${vm.name}`,
-    `start=${body.start || "-"} stop=${body.stop || "-"} ${body.timeZone}`,
+    `start=${body.start || "-"} stop=${body.stop || "-"} ${body.timeZone} days=${days.join("") || "all"}`,
   );
 }
 

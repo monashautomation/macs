@@ -74,7 +74,14 @@ export function vmOut(vm: VmRow, live: LiveView, busy: boolean) {
     busy,
     expiresAt: vm.expiresAt?.toISOString() ?? null,
     expired: vm.expired,
-    schedule: { start: vm.autoStart, stop: vm.autoStop, timeZone: vm.scheduleTz },
+    schedule: {
+      start: vm.autoStart,
+      stop: vm.autoStop,
+      timeZone: vm.scheduleTz,
+      days: [...vm.scheduleDays].map(Number),
+    },
+    /** Set while the VM is flagged idle: when it was flagged. */
+    idleSince: vm.status === "active" ? (vm.idleWarnedAt?.toISOString() ?? null) : null,
     labId: vm.labId,
     createdAt: vm.createdAt.toISOString(),
   };
