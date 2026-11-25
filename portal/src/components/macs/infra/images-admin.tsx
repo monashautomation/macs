@@ -22,6 +22,7 @@ import { useState } from "react";
 import { useConfirm } from "@/components/providers";
 import { type AdminImage, type AdminImages, api, useAct, useClusters } from "@/lib/client";
 import { Field, fmtSize, Muted, Note, Pick } from "../common";
+import { HelpTip } from "../help";
 import { OsIcon } from "../os-icon";
 import { SetupsAdmin } from "./setups-admin";
 
@@ -253,7 +254,13 @@ export function InfraImages() {
         {data?.error ? (
           <Note tone="danger">Cluster unreachable, so discovery is unavailable: {data.error}</Note>
         ) : null}
-        <SectionCard title="In the library">
+        <SectionCard
+          title={
+            <>
+              In the library <HelpTip topic="imagesListed" label="the library list" />
+            </>
+          }
+        >
           {data?.images.length ? (
             <ul className="text-sm">
               {data.images.map((i) => (
@@ -306,7 +313,14 @@ export function InfraImages() {
           )}
         </SectionCard>
 
-        <SectionCard title="Templates on the cluster not yet listed">
+        <SectionCard
+          title={
+            <>
+              Templates on the cluster not yet listed{" "}
+              <HelpTip topic="imagesUnlisted" label="unlisted templates" />
+            </>
+          }
+        >
           {data?.unlisted.templates.length ? (
             <ul className="text-sm">
               {data.unlisted.templates.map((t) => (
@@ -336,7 +350,14 @@ export function InfraImages() {
           )}
         </SectionCard>
 
-        <SectionCard title={`ISO installers${data?.isoStorage ? ` on ${data.isoStorage}` : ""}`}>
+        <SectionCard
+          title={
+            <>
+              {`ISO installers${data?.isoStorage ? ` on ${data.isoStorage}` : ""}`}{" "}
+              <HelpTip topic="imagesIso" label="ISO installers" />
+            </>
+          }
+        >
           {!data?.isoStorage ? (
             <Muted>Set iso_storage for this cluster in the config file to offer ISO installs.</Muted>
           ) : data.unlisted.isos.length ? (

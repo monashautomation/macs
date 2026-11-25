@@ -12,6 +12,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { api, useAct, useApprovals, useClusters } from "@/lib/client";
 import { fmtDateTime, fmtGB } from "../common";
+import { HelpTip } from "../help";
 
 export function InfraApprovals() {
   const q = useApprovals();
@@ -39,7 +40,12 @@ export function InfraApprovals() {
     <>
       <PageHeader
         title="Approvals"
-        description="VM requests, GPU access and published services waiting on Systems & Infra."
+        description={
+          <>
+            VM requests, GPU access and published services waiting on Systems & Infra.{" "}
+            <HelpTip topic="approvals" label="approvals" />
+          </>
+        }
       />
       <div className="space-y-4">
         {empty ? (

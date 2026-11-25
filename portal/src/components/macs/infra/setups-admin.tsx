@@ -20,6 +20,7 @@ import { useState } from "react";
 import { useConfirm } from "@/components/providers";
 import { type AdminSetup, api, useAct } from "@/lib/client";
 import { Field, fmtGB, Muted, Note } from "../common";
+import { HelpTip } from "../help";
 import { SetupIcon } from "../images";
 
 interface Draft {
@@ -263,7 +264,12 @@ export function SetupsAdmin() {
     });
   return (
     <SectionCard
-      title="Ready-made setups (one-click installs)"
+      title={
+        <>
+          Ready-made setups (one-click installs){" "}
+          <HelpTip topic="setupsAdmin" label="Ready-made setups (one-click installs)" />
+        </>
+      }
       actions={
         <Button variant="outline" onClick={() => setDraft(blank)}>
           New setup

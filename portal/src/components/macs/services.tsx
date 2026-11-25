@@ -8,6 +8,7 @@ import { Globe } from "lucide-react";
 import Link from "next/link";
 import { useClusters, useServices, useSession } from "@/lib/client";
 import { ServiceAddress } from "./common";
+import { HelpTip } from "./help";
 
 export function Services() {
   const services = useServices();
@@ -18,7 +19,12 @@ export function Services() {
     <>
       <PageHeader
         title="Public services"
-        description={`VMs on ${hosts.join(" and ") || "the homelab"} cannot reach each other. A VM's owner can publish individual ports, which makes them reachable over NetBird. To add your own, open one of your VMs.`}
+        description={
+          <>
+            {`VMs on ${hosts.join(" and ") || "the homelab"} cannot reach each other. A VM's owner can publish individual ports, which makes them reachable over NetBird. To add your own, open one of your VMs.`}{" "}
+            <HelpTip topic="serviceList" label="published services" />
+          </>
+        }
       />
       {services.data?.length ? (
         <SectionCard>

@@ -17,6 +17,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Person, type Unmanaged, useAct, useClusters, useVms } from "@/lib/client";
 import { Field, Muted, Note, Pick, VmTable } from "../common";
+import { HelpTip } from "../help";
 
 function Adopt() {
   const clusters = useClusters();
@@ -42,7 +43,12 @@ function Adopt() {
   );
   return (
     <SectionCard
-      title="On the cluster but not managed by the portal"
+      title={
+        <>
+          On the cluster but not managed by the portal{" "}
+          <HelpTip topic="unmanaged" label="On the cluster but not managed by the portal" />
+        </>
+      }
       actions={
         <Pick
           className="w-48"
@@ -137,7 +143,11 @@ export function InfraMachines() {
     <>
       <PageHeader
         title="Virtual machines"
-        description="Every VM the portal manages, across all people."
+        description={
+          <>
+            Every VM the portal manages, across all people. <HelpTip topic="allVms" label="this list" />
+          </>
+        }
         actions={
           <Input
             className="w-64"

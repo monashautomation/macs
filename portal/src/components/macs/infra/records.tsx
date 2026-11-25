@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type AuditRow, api, type Job, type Person } from "@/lib/client";
 import { BarList } from "../charts";
 import { fmtDateTime, fmtGB, JobRow, Muted } from "../common";
+import { HelpTip } from "../help";
 
 export function InfraPeople() {
   const q = useQuery({ queryKey: ["people"], queryFn: () => api<Person[]>("/admin/people") });
@@ -20,7 +21,12 @@ export function InfraPeople() {
     <>
       <PageHeader
         title="People"
-        description="Everyone who has signed in. Access comes from their Authentik groups, refreshed at each sign-in."
+        description={
+          <>
+            Everyone who has signed in. Access comes from their Authentik groups, refreshed at each sign-in.{" "}
+            <HelpTip topic="people" label="this list" />
+          </>
+        }
       />
       {top.length ? (
         <div className="mb-5">
@@ -81,7 +87,12 @@ export function InfraActivity() {
     <>
       <PageHeader
         title="Activity"
-        description="Operations the portal has run on the clusters, newest first."
+        description={
+          <>
+            Operations the portal has run on the clusters, newest first.{" "}
+            <HelpTip topic="activityLog" label="activity" />
+          </>
+        }
       />
       <SectionCard>
         {q.data?.length ? (
@@ -106,7 +117,14 @@ export function InfraAudit() {
   });
   return (
     <>
-      <PageHeader title="Audit log" description="Who did what." />
+      <PageHeader
+        title="Audit log"
+        description={
+          <>
+            Who did what. <HelpTip topic="auditLog" label="the audit log" />
+          </>
+        }
+      />
       <SectionCard>
         <Table>
           <TableBody>

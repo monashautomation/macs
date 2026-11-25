@@ -73,7 +73,8 @@ function DeviceCard({
     <SectionCard
       title={
         <>
-          <Cpu className="size-4 text-muted-foreground" aria-hidden /> {gpu.id}
+          <Cpu className="size-4 text-muted-foreground" aria-hidden /> {gpu.id}{" "}
+          <HelpTip topic={admin ? "gpuAssign" : "gpuDevice"} label="a GPU" />
         </>
       }
       actions={<StatusBadge tone={h ? "info" : "success"}>{h ? "in use" : "free"}</StatusBadge>}
@@ -545,7 +546,11 @@ export function Gpus({ admin = false }: { admin?: boolean }) {
           <WeekUsage clusterId={cluster.clusterId} from={from} capacity={cluster.devices.length * 24} />
         </SectionCard>
         <SectionCard
-          title="Schedule"
+          title={
+            <>
+              Schedule <HelpTip topic="gpuSchedule" label="the schedule" />
+            </>
+          }
           actions={
             <>
               <Button

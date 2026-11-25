@@ -39,7 +39,7 @@ export function ChartFigure({
   summary,
   children,
 }: {
-  title: string;
+  title: ReactNode;
   summary?: ReactNode;
   children: ReactNode;
 }) {

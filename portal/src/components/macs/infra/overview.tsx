@@ -10,6 +10,7 @@ import Link from "next/link";
 import { type ClusterMetrics, type Overview, useClusterMetrics, useOverview } from "@/lib/client";
 import { ChartFigure, GpuHoursChart, TimeChart } from "../charts";
 import { Note } from "../common";
+import { HelpTip } from "../help";
 
 function ClusterPanel({ c, m }: { c: Overview; m?: ClusterMetrics }) {
   const waiting = c.pending.vms + c.pending.gpu + c.pending.services;
@@ -17,7 +18,7 @@ function ClusterPanel({ c, m }: { c: Overview; m?: ClusterMetrics }) {
     <SectionCard
       title={
         <>
-          {c.name}
+          {c.name} <HelpTip topic="infraCluster" label="the cluster summary" />
           <Badge variant="secondary">{c.kind}</Badge>
           {c.network.isolated ? <Badge variant="secondary">isolated network</Badge> : null}
         </>
@@ -95,7 +96,11 @@ function ClusterPanel({ c, m }: { c: Overview; m?: ClusterMetrics }) {
           <div className="grid gap-6 lg:grid-cols-2">
             {m.load.length > 1 ? (
               <ChartFigure
-                title="Cluster load, last day"
+                title={
+                  <>
+                    Cluster load, last day <HelpTip topic="clusterLoad" label="cluster load" />
+                  </>
+                }
                 summary={`now CPU ${m.load.at(-1)?.cpu}% · memory ${m.load.at(-1)?.mem}%`}
               >
                 <TimeChart
@@ -112,7 +117,11 @@ function ClusterPanel({ c, m }: { c: Overview; m?: ClusterMetrics }) {
             ) : null}
             {m.gpu ? (
               <ChartFigure
-                title="GPU-hours booked per day"
+                title={
+                  <>
+                    GPU-hours booked per day <HelpTip topic="gpuHours" label="this chart" />
+                  </>
+                }
                 summary={`${Math.round(m.gpu.days.slice(7).reduce((n, d) => n + d.booked, 0))} h booked in the next 7 days`}
               >
                 <GpuHoursChart days={m.gpu.days} capacity={m.gpu.capacityPerDay} />

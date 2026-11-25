@@ -44,6 +44,7 @@ import {
   useClusters,
 } from "@/lib/client";
 import { Field, fmtGB, ImageBadges, Note } from "./common";
+import { HelpTip } from "./help";
 import { OsIcon } from "./os-icon";
 
 const CATEGORY_ICONS: Record<string, ReactNode> = {
@@ -234,7 +235,17 @@ export function Images() {
   const section = (id: Filter, title: string, blurb: string, cards: ReactNode[]) =>
     (filter === "all" || filter === id) && cards.length ? (
       <section key={id} className="mb-8">
-        <h2 className="text-lg font-semibold">{title}</h2>
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          {title}
+          <HelpTip
+            topic={
+              ({ setups: "libSetups", labs: "lab", os: "libOs", manual: "libManual", all: "libOs" } as const)[
+                id
+              ]
+            }
+            label={title}
+          />
+        </h2>
         <p className="mb-3 text-sm text-muted-foreground">{blurb}</p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{cards}</div>
       </section>

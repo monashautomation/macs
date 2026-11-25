@@ -180,6 +180,136 @@ export const HELP = {
     title: "GPU hours per day",
     body: "How many GPU hours are booked on each day. Quieter days are the easiest time to get a long slot.",
   },
+  libSetups: {
+    title: "Ready-made setups",
+    body: "A new VM with one piece of software already installed and reachable. The portal creates the VM, your login and the network, runs the install, and publishes its address.",
+    terms: [
+      ["Install", "one click, with sensible defaults."],
+      ["Customise", "choose the name, size and login first."],
+    ],
+  },
+  libOs: {
+    title: "Operating systems",
+    body: "A clean machine cloned from a prepared image, ready to sign in to within a minute or two. Nothing else is installed.",
+    terms: [["GPU-ready", "NVIDIA drivers are already installed, for VMs that will book GPU time."]],
+  },
+  libManual: {
+    title: "Install it yourself",
+    body: "An empty VM that boots an installer disc (ISO). You pick the user, password, disks and network on the console, exactly like installing on a real PC. The portal cannot set up your login for you here.",
+  },
+  serviceList: {
+    title: "Published services",
+    body: "Websites and servers other members run on their VMs and have chosen to share. Connect to NetBird to open them. They are run by their owners, not by Systems & Infra.",
+  },
+  gpuDevice: {
+    title: "A GPU",
+    body: "One physical graphics card in one of the cluster's servers. It can be plugged into a single VM at a time.",
+    terms: [
+      ["Free", "no VM has it right now."],
+      ["In use", "attached to the VM shown, usually for a booking."],
+    ],
+  },
+  gpuSchedule: {
+    title: "Schedule",
+    body: "Every booking for the week, one row per VM. Bookings are for a GPU from the pool, not a particular card: whichever is free is attached when the slot starts.",
+  },
+  infraCluster: {
+    title: "Cluster summary",
+    body: "What the portal sees on this cluster right now.",
+    terms: [
+      ["Portal VMs", "VMs the portal created or adopted, and tracks an owner for."],
+      ["Not managed", "VMs that exist in Proxmox but the portal has no record of."],
+      ["Allocated", "the sizes VMs were given, whether or not they are running."],
+    ],
+  },
+  approvals: {
+    title: "Approvals",
+    body: "Requests that wait for a decision. The requester is notified either way, and a note you add is shown to them.",
+    terms: [
+      ["New VM", "approving creates it straight away."],
+      ["GPU access", "lets an existing VM book GPU time. It does not attach a GPU."],
+      ["Publish a service", "opens one port on the VM's firewall to NetBird."],
+    ],
+  },
+  allVms: {
+    title: "All virtual machines",
+    body: "Every VM the portal manages, whoever owns it. Open one to act on it as an admin: you can do everything its owner can, and each action is recorded in the audit log.",
+  },
+  unmanaged: {
+    title: "Not managed by the portal",
+    body: "VMs that exist on the cluster but were not created here, so nobody can see or control them in the portal. Adopting one records an owner for it and puts it under the portal's rules, including the firewall on isolated clusters. Nothing on its disk changes.",
+  },
+  gpuAssign: {
+    title: "Assigning GPUs by hand",
+    body: "Infrastructure can give a GPU to a VM or take it back outside the booking system. Both restart the VM. A VM holding a GPU without a booking gives it up when someone else's booking starts.",
+  },
+  imagesListed: {
+    title: "In the library",
+    body: "What members can pick when they create a VM on this cluster.",
+    terms: [
+      ["Template", "a prepared Proxmox VM that is cloned. Needs cloud-init and the guest agent."],
+      ["ISO", "an installer disc the member runs by hand."],
+      ["Hidden", "kept for existing VMs but no longer offered."],
+    ],
+  },
+  imagesUnlisted: {
+    title: "Templates not yet listed",
+    body: "Templates found in Proxmox on this cluster that the library does not offer yet. Add one to let members deploy from it.",
+  },
+  imagesIso: {
+    title: "ISO installers",
+    body: "Installer discs on the cluster's ISO storage. Upload them in Proxmox; add one here to offer it under Install it yourself.",
+  },
+  setupsAdmin: {
+    title: "Ready-made setups",
+    body: "Each setup is a bash script the portal runs as root inside a member's new VM, through the guest agent. Only Systems & Infra can read or change the scripts, so review them like any code that runs with full rights.",
+    terms: [
+      ["Hidden", "no longer offered; existing VMs are unaffected."],
+      ["Labs only", "used by a lab blueprint, not shown in the library."],
+    ],
+  },
+  networkPolicy: {
+    title: "Network policy",
+    body: "How this cluster's VMs sit on the network, from its config file.",
+    terms: [
+      [
+        "Isolated",
+        "each VM's Proxmox firewall drops inbound traffic except the owner's access ports, lab peers and published services.",
+      ],
+      ["Open LAN", "the portal does not filter traffic."],
+      [
+        "Re-apply",
+        "rewrites the portal's own firewall rules on every VM. Rules added by hand are left alone.",
+      ],
+    ],
+  },
+  allServices: {
+    title: "All published services",
+    body: "Every port any member has published or asked to publish. Unpublishing closes the port on the VM's firewall immediately.",
+  },
+  people: {
+    title: "People",
+    body: "Everyone who has signed in at least once.",
+    terms: [
+      [
+        "Groups",
+        "their Authentik groups as of their last sign-in. These decide which clusters they can use and who is an admin.",
+      ],
+      ["Allocated", "the total size of their VMs, running or not."],
+    ],
+  },
+  activityLog: {
+    title: "Activity",
+    body: "Jobs the portal ran on the clusters: creating, starting, backing up, moving GPUs and so on, each with its log. Look here when something failed.",
+  },
+  auditLog: {
+    title: "Audit log",
+    body: "A record of who asked for what and when, including things that are not jobs: approvals, sharing, password resets, console sessions. Secrets are never written here.",
+  },
+  clusterLoad: {
+    title: "Cluster load",
+    body: "Average CPU and memory in use across the cluster's servers over the last day, from Proxmox. It counts everything running there, not just portal VMs.",
+  },
 } as const satisfies Record<string, Topic>;
 
 export type HelpTopic = keyof typeof HELP;

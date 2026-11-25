@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { useConfirm } from "@/components/providers";
 import { api, type Overview, type Service, useAct, useOverview } from "@/lib/client";
 import { Muted, Note, ServiceAddress } from "../common";
+import { HelpTip } from "../help";
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -35,7 +36,7 @@ function Policy({ c }: { c: Overview }) {
     <SectionCard
       title={
         <>
-          {c.name}
+          {c.name} <HelpTip topic="networkPolicy" label="network policy" />
           <StatusBadge tone={n.isolated ? "info" : "neutral"}>
             {n.isolated ? "isolated" : "open LAN"}
           </StatusBadge>
@@ -112,13 +113,24 @@ export function InfraNetwork() {
     <>
       <PageHeader
         title="Network & services"
-        description="How each cluster's VMs sit on the network, and every published port."
+        description={
+          <>
+            How each cluster's VMs sit on the network, and every published port.{" "}
+            <HelpTip topic="networkPolicy" label="network policy" />
+          </>
+        }
       />
       <div className="space-y-5">
         {overview.data?.map((c) => (
           <Policy key={c.id} c={c} />
         ))}
-        <SectionCard title="All published services">
+        <SectionCard
+          title={
+            <>
+              All published services <HelpTip topic="allServices" label="this list" />
+            </>
+          }
+        >
           {services.data?.length ? (
             <ul className="text-sm">
               {services.data.map((s) => (
