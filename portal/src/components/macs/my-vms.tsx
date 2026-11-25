@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useConfirm } from "@/components/providers";
 import { api, type Cluster, type Lab, useAct, useClusters, useLabs, useVms, type Vm } from "@/lib/client";
 import { VmTable } from "./common";
+import { HelpTip } from "./help";
 
 /** A lab's VMs together, with the one thing you do to a whole lab: delete it. */
 function LabCard({ lab, vms, clusters }: { lab: Lab; vms: Vm[]; clusters: Cluster[] }) {
@@ -25,7 +26,8 @@ function LabCard({ lab, vms, clusters }: { lab: Lab; vms: Vm[]; clusters: Cluste
     <SectionCard
       title={
         <>
-          <Network className="size-4 text-muted-foreground" aria-hidden /> Lab {lab.name}
+          <Network className="size-4 text-muted-foreground" aria-hidden /> Lab {lab.name}{" "}
+          <HelpTip topic="lab" label="a lab" />
           <Badge variant="secondary">{lab.blueprint}</Badge>
         </>
       }
@@ -77,7 +79,7 @@ function ClusterCard({ c }: { c: Cluster }) {
     <SectionCard
       title={
         <>
-          {c.name}
+          {c.name} <HelpTip topic="cluster" label={c.name} />
           <StatusBadge tone={c.approval === "none" ? "success" : "info"}>
             {c.approval === "none" ? "self-service" : "needs approval"}
           </StatusBadge>

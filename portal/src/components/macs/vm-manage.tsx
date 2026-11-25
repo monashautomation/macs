@@ -28,6 +28,7 @@ import {
   useSnapshots,
 } from "@/lib/client";
 import { Field, fmtDateTime, Muted, Note, Pick } from "./common";
+import { HelpTip } from "./help";
 
 type Run = (path: string, body?: unknown, method?: string) => Promise<unknown>;
 const DAY = 86_400_000;
@@ -62,7 +63,8 @@ export function IdleNotice({ vm, run }: { vm: Detail; run: Run }) {
     <div className="flex flex-wrap items-center gap-3 rounded-md bg-warning-bg px-3 py-2 text-sm text-warning">
       <span className="flex-1">
         This VM looks idle: it has used almost no CPU or network for days. It will be shut down soon to free
-        the resources (nothing is deleted, and you can start it again). Still need it running?
+        the resources (nothing is deleted, and you can start it again). Still need it running?{" "}
+        <HelpTip topic="idle" label="idle" />
       </span>
       <Button variant="outline" size="sm" onClick={() => run(`/vms/${vm.id}/keep`)}>
         Keep running
@@ -113,7 +115,8 @@ export function FirstSteps({ vm }: { vm: Detail }) {
     <SectionCard
       title={
         <>
-          <ListChecks className="size-4 text-muted-foreground" aria-hidden /> First steps
+          <ListChecks className="size-4 text-muted-foreground" aria-hidden /> First steps{" "}
+          <HelpTip topic="firstSteps" label="First steps" />
         </>
       }
       actions={
@@ -165,7 +168,8 @@ export function SnapshotsPanel({ vm, run, own }: { vm: Detail; run: Run; own: bo
     <SectionCard
       title={
         <>
-          <Camera className="size-4 text-muted-foreground" aria-hidden /> Snapshots
+          <Camera className="size-4 text-muted-foreground" aria-hidden /> Snapshots{" "}
+          <HelpTip topic="snapshots" label="Snapshots" />
         </>
       }
       actions={
@@ -285,7 +289,8 @@ function SizePanel({ vm, run }: { vm: Detail; run: Run }) {
     <SectionCard
       title={
         <>
-          <Scaling className="size-4 text-muted-foreground" aria-hidden /> Size
+          <Scaling className="size-4 text-muted-foreground" aria-hidden /> Size{" "}
+          <HelpTip topic="size" label="Size" />
         </>
       }
     >
@@ -374,7 +379,8 @@ function SchedulePanel({ vm, run }: { vm: Detail; run: Run }) {
     <SectionCard
       title={
         <>
-          <Clock className="size-4 text-muted-foreground" aria-hidden /> Power schedule
+          <Clock className="size-4 text-muted-foreground" aria-hidden /> Power schedule{" "}
+          <HelpTip topic="schedule" label="Power schedule" />
         </>
       }
     >
@@ -446,7 +452,8 @@ function LoginPanel({ vm, run, own, onLogin }: { vm: Detail; run: Run; own: bool
     <SectionCard
       title={
         <>
-          <KeyRound className="size-4 text-muted-foreground" aria-hidden /> Login
+          <KeyRound className="size-4 text-muted-foreground" aria-hidden /> Login{" "}
+          <HelpTip topic="keys" label="Login" />
         </>
       }
     >
@@ -525,7 +532,8 @@ function SharingPanel({ vm, run }: { vm: Detail; run: Run }) {
     <SectionCard
       title={
         <>
-          <Users className="size-4 text-muted-foreground" aria-hidden /> Sharing
+          <Users className="size-4 text-muted-foreground" aria-hidden /> Sharing{" "}
+          <HelpTip topic="sharing" label="Sharing" />
         </>
       }
     >
@@ -602,7 +610,8 @@ function DangerPanel({ vm, run, onLogin }: { vm: Detail; run: Run; onLogin: () =
     <SectionCard
       title={
         <>
-          <TriangleAlert className="size-4 text-muted-foreground" aria-hidden /> Start over
+          <TriangleAlert className="size-4 text-muted-foreground" aria-hidden /> Start over{" "}
+          <HelpTip topic="startOver" label="Start over" />
         </>
       }
     >

@@ -19,6 +19,7 @@ import { Play, SquareTerminal } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useState } from "react";
 import { api, type Cluster, type Image, type Job, type Service, useAct, type Vm } from "@/lib/client";
+import { HelpTip } from "./help";
 import { OsIcon } from "./os-icon";
 
 export function Field({
@@ -164,9 +165,17 @@ export function VmTable({
           <TableHead>Name</TableHead>
           {showOwner ? <TableHead>Owner</TableHead> : null}
           <TableHead>Cluster</TableHead>
-          <TableHead>Status</TableHead>
+          <TableHead>
+            <span className="inline-flex items-center gap-1">
+              Status <HelpTip topic="vmStatus" label="status" />
+            </span>
+          </TableHead>
           <TableHead>Size</TableHead>
-          <TableHead>GPU</TableHead>
+          <TableHead>
+            <span className="inline-flex items-center gap-1">
+              GPU <HelpTip topic="gpuColumn" label="the GPU column" />
+            </span>
+          </TableHead>
           {actions ? <TableHead className="text-right">Quick action</TableHead> : null}
         </TableRow>
       </TableHeader>

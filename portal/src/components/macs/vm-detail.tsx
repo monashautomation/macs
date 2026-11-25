@@ -60,13 +60,17 @@ import {
   ServiceAddress,
   VmStatus,
 } from "./common";
+import { HelpTip, type HelpTopic } from "./help";
 import { OsIcon } from "./os-icon";
 import { Expiry, FirstSteps, IdleNotice, SnapshotsPanel, VmSettings } from "./vm-manage";
 
-function Fact({ label, children }: { label: string; children: ReactNode }) {
+function Fact({ label, help, children }: { label: string; help?: HelpTopic; children: ReactNode }) {
   return (
     <div>
-      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dt className="flex items-center gap-1 text-xs text-muted-foreground">
+        {label}
+        {help ? <HelpTip topic={help} label={label} /> : null}
+      </dt>
       <dd className="mt-0.5 text-sm">{children}</dd>
     </div>
   );
@@ -127,7 +131,8 @@ function FirstLogin({ vmId }: { vmId: string }) {
     <SectionCard
       title={
         <>
-          <KeyRound className="size-4 text-muted-foreground" aria-hidden /> Login for this VM
+          <KeyRound className="size-4 text-muted-foreground" aria-hidden /> Login for this VM{" "}
+          <HelpTip topic="login" label="Login for this VM" />
         </>
       }
       actions={
@@ -208,7 +213,8 @@ function UsagePanel({ id }: { id: string }) {
     <SectionCard
       title={
         <>
-          <Activity className="size-4 text-muted-foreground" aria-hidden /> Usage
+          <Activity className="size-4 text-muted-foreground" aria-hidden /> Usage{" "}
+          <HelpTip topic="usage" label="Usage" />
         </>
       }
       actions={
@@ -287,7 +293,8 @@ function ServicesPanel({ vm, approval, max }: { vm: Detail; approval: boolean; m
     <SectionCard
       title={
         <>
-          <Globe className="size-4 text-muted-foreground" aria-hidden /> Public services
+          <Globe className="size-4 text-muted-foreground" aria-hidden /> Public services{" "}
+          <HelpTip topic="services" label="Public services" />
         </>
       }
       actions={
@@ -546,14 +553,19 @@ export function VmDetail({ id }: { id: string }) {
           <SectionCard
             title={
               <>
-                <Info className="size-4 text-muted-foreground" aria-hidden /> Details
+                <Info className="size-4 text-muted-foreground" aria-hidden /> Details{" "}
+                <HelpTip topic="details" label="Details" />
               </>
             }
           >
             <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               <Fact label="Cluster">{cluster?.name ?? vm.clusterId}</Fact>
-              <Fact label="Node">{vm.node ?? "—"}</Fact>
-              <Fact label="VMID">{vm.vmid ?? "—"}</Fact>
+              <Fact label="Node" help="node">
+                {vm.node ?? "—"}
+              </Fact>
+              <Fact label="VMID" help="vmid">
+                {vm.vmid ?? "—"}
+              </Fact>
               <Fact label="Owner">{vm.owner.name}</Fact>
               <Fact label="Size">
                 {vm.cores} vCPU · {fmtGB(vm.memoryMb)} · {vm.diskGb} GB
@@ -564,7 +576,7 @@ export function VmDetail({ id }: { id: string }) {
                 {vm.ips.length ? vm.ips.join(", ") : running ? "waiting for guest agent…" : "—"}
               </Fact>
               {vm.expiresAt && active ? (
-                <Fact label="Runs until">
+                <Fact label="Runs until" help="expiry">
                   {fmtDateTime(vm.expiresAt)}{" "}
                   <button
                     type="button"
@@ -576,7 +588,7 @@ export function VmDetail({ id }: { id: string }) {
                 </Fact>
               ) : null}
               {vm.schedule.start || vm.schedule.stop ? (
-                <Fact label="Power schedule">
+                <Fact label="Power schedule" help="schedule">
                   {vm.schedule.stop ? `off ${vm.schedule.stop}` : ""}
                   {vm.schedule.stop && vm.schedule.start ? " · " : ""}
                   {vm.schedule.start ? `on ${vm.schedule.start}` : ""}
@@ -600,7 +612,8 @@ export function VmDetail({ id }: { id: string }) {
             <SectionCard
               title={
                 <>
-                  <Plug className="size-4 text-muted-foreground" aria-hidden /> Connect
+                  <Plug className="size-4 text-muted-foreground" aria-hidden /> Connect{" "}
+                  <HelpTip topic="connect" label="Connect" />
                 </>
               }
               actions={
@@ -668,7 +681,8 @@ export function VmDetail({ id }: { id: string }) {
             <SectionCard
               title={
                 <>
-                  <Cpu className="size-4 text-muted-foreground" aria-hidden /> GPU
+                  <Cpu className="size-4 text-muted-foreground" aria-hidden /> GPU{" "}
+                  <HelpTip topic="gpu" label="GPU" />
                 </>
               }
               actions={
@@ -766,7 +780,8 @@ export function VmDetail({ id }: { id: string }) {
             <SectionCard
               title={
                 <>
-                  <DatabaseBackup className="size-4 text-muted-foreground" aria-hidden /> Backups
+                  <DatabaseBackup className="size-4 text-muted-foreground" aria-hidden /> Backups{" "}
+                  <HelpTip topic="backups" label="Backups" />
                 </>
               }
               actions={
@@ -856,7 +871,8 @@ export function VmDetail({ id }: { id: string }) {
         <SectionCard
           title={
             <>
-              <History className="size-4 text-muted-foreground" aria-hidden /> Recent activity
+              <History className="size-4 text-muted-foreground" aria-hidden /> Recent activity{" "}
+              <HelpTip topic="activity" label="Recent activity" />
             </>
           }
         >

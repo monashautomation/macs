@@ -36,6 +36,7 @@ import {
 import { dailyGpuHours } from "@/lib/gpu-hours";
 import { ChartFigure, GpuHoursChart } from "./charts";
 import { Field, fmtDateTime, fmtTime, Note, Pick } from "./common";
+import { HelpTip } from "./help";
 
 const DAY = 86_400_000;
 const DAYS = 7;
@@ -519,7 +520,13 @@ export function Gpus({ admin = false }: { admin?: boolean }) {
             <DeviceCard key={g.id} gpu={g} cluster={cluster} vms={vms.data ?? []} admin={admin} />
           ))}
         </div>
-        <SectionCard title="Book GPU time">
+        <SectionCard
+          title={
+            <>
+              Book GPU time <HelpTip topic="bookGpu" label="Book GPU time" />
+            </>
+          }
+        >
           <BookingForm
             key={cluster.clusterId}
             eligible={eligible}
@@ -528,7 +535,13 @@ export function Gpus({ admin = false }: { admin?: boolean }) {
             primary={!admin}
           />
         </SectionCard>
-        <SectionCard title="GPU hours booked per day">
+        <SectionCard
+          title={
+            <>
+              GPU hours booked per day <HelpTip topic="gpuHours" label="GPU hours booked per day" />
+            </>
+          }
+        >
           <WeekUsage clusterId={cluster.clusterId} from={from} capacity={cluster.devices.length * 24} />
         </SectionCard>
         <SectionCard

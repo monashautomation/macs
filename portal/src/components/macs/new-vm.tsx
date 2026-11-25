@@ -15,6 +15,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, type Created, rememberLogin, useAct, useClusters, useSession } from "@/lib/client";
 import { Crumbs, Field, ImageBadges, Note, Pick } from "./common";
+import { HelpTip } from "./help";
 import { OsIcon } from "./os-icon";
 
 const upTo = (options: number[], max: number) => options.filter((o) => o <= max);
@@ -141,7 +142,13 @@ export function NewVm() {
     >
       <Crumbs here="New VM" />
       <PageHeader title="New VM" />
-      <SectionCard title="Where">
+      <SectionCard
+        title={
+          <>
+            Where <HelpTip topic="newWhere" label="Where" />
+          </>
+        }
+      >
         <div className="grid gap-3 sm:grid-cols-2">
           {clusters.data.map((c) => (
             <ChoiceCard
@@ -170,7 +177,13 @@ export function NewVm() {
         </div>
       </SectionCard>
 
-      <SectionCard title="How">
+      <SectionCard
+        title={
+          <>
+            How <HelpTip topic="newHow" label="How" />
+          </>
+        }
+      >
         <div className="grid gap-3 sm:grid-cols-2">
           <ChoiceCard
             selected={mode === "auto"}
@@ -207,7 +220,13 @@ export function NewVm() {
         </div>
       </SectionCard>
 
-      <SectionCard title="What">
+      <SectionCard
+        title={
+          <>
+            What <HelpTip topic="newWhat" label="What" />
+          </>
+        }
+      >
         <div className="space-y-4">
           <Field
             label="Name"
@@ -386,7 +405,13 @@ export function NewVm() {
       </SectionCard>
 
       {needsApproval || gpuPossible ? (
-        <SectionCard title={needsApproval ? "Approval" : "GPU"}>
+        <SectionCard
+          title={
+            <>
+              {needsApproval ? "Approval" : "GPU"} <HelpTip topic={needsApproval ? "newApproval" : "gpu"} />
+            </>
+          }
+        >
           <div className="space-y-4">
             {gpuPossible ? (
               <div className="flex items-start gap-3">
